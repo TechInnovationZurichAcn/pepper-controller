@@ -1,6 +1,7 @@
 """Robot-side actions for the Pepper teleop menu, kept separate from the pygame UI
-so each piece stays small: follow-me (ALTracker), face characteristics
-(ALFaceCharacteristics + TTS), the 'hi' emote, and LED control (ALLeds).
+so each piece stays small: follow-me (ALTracker), touch reaction (tactile sensors),
+face characteristics (ALFaceCharacteristics + TTS), the 'hi'/67/clown emotes, and
+LED control (ALLeds).
 
 All calls are wrapped defensively — a missing service or an unreadable memory key
 degrades gracefully instead of crashing the teleop loop.
@@ -283,6 +284,100 @@ class FollowMe(object):
         self.active = False
         print("follow-me: OFF")
         _say(self.tts, "Follow me off.")
+        return self.active
+
+    def toggle(self):
+        return self.stop() if self.active else self.start()
+
+
+class TouchMonitor(object):
+    """Say 'don't touch me' when someone touches Pepper's tactile sensors.
+
+    Pepper's capacitive touch sensors (3 head zones + the back of each hand) each
+    expose an ALMemory key that reads ~1.0 while touched. We POLL them in a
+    background thread (this qi build raises 'Invalid signature' on ALMemory.subscriber,
+    same reason VoiceRecognizer polls WordRecognized) and speak on a rising edge,
+    with a cooldown so a held touch doesn't spam. Missing keys on a given firmware
+    simply read as 'not touched' — no crash.
+
+    Base bumpers are intentionally excluded: they fire on driving into things, not on
+    a person touching the robot, so they'd false-trigger while teleoperating.
+    """
+
+    TOUCH_KEYS = [
+        "FrontTactilTouched", "MiddleTactilTouched", "RearTactilTouched",  # head
+        "HandLeftBackTouched", "HandRightBackTouched",                     # hands
+    ]
+    POLL_S = 0.2
+    COOLDOWN_S = 4.0     # min seconds between spoken reactions (even if still touched)
+    PHRASES = [u"Please don't touch me.", u"Hey, please don't touch me!",
+               u"Please stop touching me."]
+
+    def __init__(self, session):
+        self.memory = session.service("ALMemory")   # raises if unavailable -> feature disabled
+        try:
+            self.tts = session.service("ALTextToSpeech")
+        except Exception:
+            self.tts = None
+        self.active = False
+        self._stop = None
+        self._thread = None
+        self._last_say = 0.0
+        self._was_touched = False
+        self._phrase_idx = 0
+
+    def _touched(self):
+        for key in self.TOUCH_KEYS:
+            try:
+                val = self.memory.getData(key)
+            except Exception:
+                continue  # key doesn't exist on this firmware
+            try:
+                if val is not None and float(val) >= 0.5:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        return False
+
+    def _run(self):
+        while not self._stop.is_set():
+            touched = False
+            try:
+                touched = self._touched()
+            except Exception as exc:
+                print("(touch poll skipped: {})".format(exc))
+            now = time.time()
+            # Speak on a rising edge, throttled by the cooldown.
+            if touched and not self._was_touched and (now - self._last_say) >= self.COOLDOWN_S:
+                self._last_say = now
+                phrase = self.PHRASES[self._phrase_idx % len(self.PHRASES)]
+                self._phrase_idx += 1
+                print("touch: someone touched me -> '{}'".format(phrase))
+                _say(self.tts, phrase)
+            self._was_touched = touched
+            self._stop.wait(self.POLL_S)
+
+    def start(self):
+        try:
+            self._stop = threading.Event()
+            self._was_touched = False
+            self._thread = threading.Thread(target=self._run)
+            self._thread.daemon = True
+            self._thread.start()
+            self.active = True
+            print("touch-react: ON")
+        except Exception as exc:
+            print("WARN: touch monitor start failed: {}".format(exc))
+            self.active = False
+        return self.active
+
+    def stop(self):
+        if self._stop is not None:
+            self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+        self.active = False
+        print("touch-react: OFF")
         return self.active
 
     def toggle(self):

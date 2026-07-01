@@ -105,7 +105,7 @@ SHIFT+WASD/QE  move the HIP: W/S lean fwd/back, A/D lean left/right, Q/E crouch/
 H/J .......... left arm up/down    L/K ... right arm up/down
 O/P .......... open/close both hands
 ENTER ........ type a message -> shows on tablet + Pepper speaks it
-CTRL+M ....... open menu (follow-me, voice commands, dialogue, emotes, navigation, LEDs)
+CTRL+M ....... open menu (follow-me, voice, dialogue, don't-touch-me, emotes, navigation, LEDs)
 [ / ] ........ speed scale down/up   1/2/... select camera   C cycle camera
 F ............ fullscreen   SPACE emergency stop   ESC quit
 ```
@@ -133,6 +133,7 @@ action has a spoken equivalent** — you don't need the menu once voice is on:
 | Face | "read my face" |
 | Follow | "follow me", "stop following" |
 | Chat | "start dialogue", "stop dialogue" |
+| Touch | "stop reacting to touch", "react to touch" |
 | LEDs | "cycle eyes", "cycle chest", "toggle ears", "red eyes", "turn off lights" |
 | Mapping | "explore the area", "new map", "next map", "bigger map", "remember this spot", "go to spot one", "load map", "forget spots", "stop navigation" |
 | Voice | "stop listening" (turns voice off) |

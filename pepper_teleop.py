@@ -18,9 +18,9 @@ Controls (holonomic base, "strafe" scheme):
     L / K ......... right arm up / down
     O / P ......... open / close both hands (grab & release; hands are open/close only)
     ENTER ......... type a message; ENTER again shows it on the tablet + says it (ESC cancels)
-    CTRL + M ...... open/close the menu (follow-me, voice commands, dialogue, face
-                    characteristics, hi emote, 67 emote, clown dance, navigation/mapping,
-                    LEDs) — Up/Down move, ENTER select, ESC back
+    CTRL + M ...... open/close the menu (follow-me, voice commands, dialogue,
+                    don't-touch-me, face characteristics, hi emote, 67 emote, clown
+                    dance, navigation/mapping, LEDs) — Up/Down move, ENTER select, ESC back
                     Navigation submenu: explore & map the area, remember the current
                     spot, then drive back to any remembered spot (ALNavigation).
                     Voice commands (menu): say "move forward/backward", "turn left/right",
@@ -547,7 +547,7 @@ def make_nav_menu(nav, parent):
 
 
 def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav=None,
-                   clown_audio=None):
+                   clown_audio=None, touch=None):
     menu = {"title": "Menu", "index": 0, "parent": None, "items": []}
     items = []
     if follow is not None:
@@ -562,6 +562,10 @@ def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url,
         items.append({
             "label": lambda: "Dialogue (talk to me): {}".format("ON" if dialogue.active else "OFF"),
             "action": lambda: _do(lambda: toggle_exclusive(dialogue, voice))})
+    if touch is not None:
+        items.append({
+            "label": lambda: "Don't-touch-me: {}".format("ON" if touch.active else "OFF"),
+            "action": lambda: _do(touch.toggle)})
     items.append({
         "label": lambda: "Say face characteristics",
         "action": lambda: _do(lambda: feat.say_face_characteristics(session, tts), close=True)})
@@ -654,7 +658,7 @@ def toggle_exclusive(primary, other):
 # (the main loop asserts it); features call their services directly.
 
 def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, targets, state,
-                         tablet, gif_url, nav=None, clown_audio=None):
+                         tablet, gif_url, nav=None, clown_audio=None, touch=None):
     def timed_move(vx, vy, vth, ms):
         state["vx"], state["vy"], state["vth"] = vx, vy, vth
         state["move_until"] = pygame.time.get_ticks() + ms
@@ -792,6 +796,12 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
         add(("stop dialogue", "stop chatting", "stop talking"),
             lambda: dialogue.stop() if dialogue.active else None)
 
+    if touch is not None:
+        add(("stop reacting to touch", "you can touch me", "touch is okay"),
+            lambda: touch.stop() if touch.active else None)
+        add(("don't let me touch you", "react to touch", "no touching"),
+            lambda: touch.start() if not touch.active else None)
+
     # Turn voice recognition off by voice (threaded: stop() joins the poll thread,
     # which is the very thread dispatching this command).
     def voice_off():
@@ -845,6 +855,12 @@ def main(ip, port, cam_id, resolution, fps):
     except Exception as exc:
         nav = None
         print("WARN: ALNavigation unavailable, mapping disabled: {}".format(exc))
+    try:
+        touch = feat.TouchMonitor(session)
+        touch.start()   # react to touch by default; toggle from the menu
+    except Exception as exc:
+        touch = None
+        print("WARN: ALMemory touch unavailable, touch reaction disabled: {}".format(exc))
     # 67 GIF: upload it onto the robot so its tablet serves it locally/offline
     # (same-origin, the reliable path). Fall back to laptop-hosting if that fails.
     assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -879,7 +895,7 @@ def main(ip, port, cam_id, resolution, fps):
     state = {"vx": 0.0, "vy": 0.0, "vth": 0.0, "move_until": 0, "suspend_until": 0}
     voice_commands = build_voice_commands(
         motion, posture, session, tts, follow, leds, dialogue, targets, state, tablet, gif_url, nav,
-        clown_audio)
+        clown_audio, touch)
     try:
         voice = feat.VoiceRecognizer(session, voice_commands)
     except Exception as exc:
@@ -932,7 +948,7 @@ def main(ip, port, cam_id, resolution, fps):
                         # CTRL+M toggles the menu (works whether open or closed).
                         menu = None if menu is not None else make_main_menu(
                             session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav,
-                            clown_audio)
+                            clown_audio, touch)
                     elif menu is not None:
                         items = menu["items"]
                         if event.key in (pygame.K_UP, pygame.K_w):
@@ -1110,6 +1126,8 @@ def main(ip, port, cam_id, resolution, fps):
         try:
             if follow is not None and follow.active:
                 follow.stop()
+            if touch is not None and touch.active:
+                touch.stop()
             if nav is not None:
                 nav.stop()
             if dialogue is not None and dialogue.active:
