@@ -15,6 +15,7 @@ Controls (holonomic base, "strafe" scheme):
     G ............. recenter the head
     H / J ......... left arm up / down
     L / K ......... right arm up / down
+    O / P ......... open / close both hands (grab & release; hands are open/close only)
     ENTER ......... type a message; ENTER again shows it on the tablet + says it (ESC cancels)
     CTRL + M ...... open/close the menu (follow-me, voice commands, dialogue, face
                     characteristics, hi emote, LEDs) — Up/Down move, ENTER select, ESC back
@@ -126,20 +127,47 @@ def connect(ip, port):
     return session
 
 
-def prepare_robot(session):
-    """Take the robot out of autonomous life and wake it so it can drive."""
+def quiet_autonomous_head(session):
+    """Stop every autonomous behavior that moves the head on its own — tracking
+    people (ALBasicAwareness), idle 'looking around' (ALBackgroundMovement), and
+    listening/speaking head sway. Otherwise these fight our held head position."""
     try:
         life = session.service("ALAutonomousLife")
         if life.getState() != "disabled":
             life.setState("disabled")
+        # Belt-and-suspenders: also switch off each head-moving ability by name.
+        for ability in ("BasicAwareness", "BackgroundMovement",
+                        "ListeningMovement", "SpeakingMovement"):
+            try:
+                life.setAutonomousAbilityEnabled(ability, False)
+            except Exception:
+                pass
     except Exception as exc:
         print("WARN: couldn't disable AutonomousLife: {}".format(exc))
-    # These two keep animating/recentering the head and fight manual head control.
-    for svc_name in ("ALBackgroundMovement", "ALBasicAwareness"):
-        try:
-            session.service(svc_name).setEnabled(False)
-        except Exception as exc:
-            print("WARN: couldn't disable {}: {}".format(svc_name, exc))
+
+    # ALBasicAwareness (head tracks people/sound) can run independently of
+    # AutonomousLife; stop it every way this build might expose.
+    try:
+        aware = session.service("ALBasicAwareness")
+        for method, arg in (("setEnabled", False), ("pauseAwareness", None),
+                            ("stopAwareness", None)):
+            try:
+                fn = getattr(aware, method)
+                fn(arg) if arg is not None else fn()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    try:
+        session.service("ALBackgroundMovement").setEnabled(False)
+    except Exception as exc:
+        print("WARN: couldn't disable ALBackgroundMovement: {}".format(exc))
+
+
+def prepare_robot(session):
+    """Take the robot out of autonomous life and wake it so it can drive."""
+    quiet_autonomous_head(session)
     motion = session.service("ALMotion")
     try:
         motion.wakeUp()
@@ -541,6 +569,13 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
     def set_arm(joint, value):
         targets[joint] = clamp_joint(joint, value)
 
+    def set_hands(value):
+        # Pepper hands are single-DOF: 1.0 = open, 0.0 = closed (grip).
+        try:
+            motion.setAngles(["LHand", "RHand"], [value, value], 0.5)
+        except Exception as exc:
+            print("WARN: hand move failed: {}".format(exc))
+
     def go_posture(name, hold_ms):
         state["suspend_until"] = max(state["suspend_until"], pygame.time.get_ticks() + hold_ms)
         if posture is not None:
@@ -588,6 +623,9 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
     add(("lower right arm",), lambda: set_arm("RShoulderPitch", 1.4))
     add(("arms down", "put your arms down"),
         lambda: (set_arm("LShoulderPitch", 1.5), set_arm("RShoulderPitch", 1.5)))
+
+    add(("open hands", "open your hands", "let go", "release"), lambda: set_hands(1.0))
+    add(("close hands", "close your hands", "grab", "grab it"), lambda: set_hands(0.0))
 
     add(("stand up", "stand"), lambda: go_posture("StandInit", 3000))
     add(("sit down", "sit"), lambda: go_posture("Sit", 3000))
@@ -710,6 +748,7 @@ def main(ip, port, cam_id, resolution, fps):
     running = True
     print("Connected. Drive with WASD/QE, SHIFT boost, F fullscreen, SPACE stop, ESC quit.")
     print("Head: hold CTRL + WASD/QE, G recenters. Arms: H/J left up/down, L/K right up/down.")
+    print("Hands: O open, P close (grab). Move an arm into place, then P to grip.")
     print("Cameras: 1=top, 2=bottom (3/4 if present), or C to cycle.")
     print("Press ENTER to type a tablet message. Press CTRL+M for the menu.")
 
@@ -768,6 +807,12 @@ def main(ip, port, cam_id, resolution, fps):
                     elif event.key == pygame.K_g:
                         targets["HeadYaw"] = 0.0   # recenter head (asserted next frame)
                         targets["HeadPitch"] = 0.0
+                    elif event.key in (pygame.K_o, pygame.K_p):
+                        value = 1.0 if event.key == pygame.K_o else 0.0  # O=open, P=close/grab
+                        try:
+                            motion.setAngles(["LHand", "RHand"], [value, value], 0.5)
+                        except Exception as exc:
+                            print("WARN: hand move failed: {}".format(exc))
                     elif event.key == pygame.K_c:
                         grabber.request_camera(CAM_BOTTOM if camera.cam_id == CAM_TOP else CAM_TOP)
                     elif pygame.K_1 <= event.key <= pygame.K_9:
