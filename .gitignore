@@ -27,4 +27,7 @@ Thumbs.db
 *.tmp
 *.pid
 
+# Navigation map + remembered spots (runtime state, robot-specific paths)
+pepper_map.json
+
 # Note: assets/67.gif IS committed on purpose — the 67 emote deploys it to the robot.

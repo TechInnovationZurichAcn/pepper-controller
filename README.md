@@ -16,6 +16,7 @@ Confirmed against **NAOqi 2.5.10.7** (classic Pepper).
 | `pepper_diag.py` | **Run this first.** Connects, prints the NAOqi version, checks required services, and makes Pepper say hello. |
 | `pepper_teleop.py` | Main app: keyboard drive + live camera in a pygame window, arms/head/hands, voice commands, tablet messages, in-app menu. |
 | `pepper_features.py` | Robot-side actions (follow-me, face characteristics, emotes, LEDs, tablet hosting) imported by the teleop app. Not run directly. |
+| `pepper_navigation.py` | Mapping & remembered-spots via ALNavigation (explore an area, remember spots, drive back to them). Imported by the teleop app. Not run directly. |
 | `pepper_follow_me.py` | Standalone "Pepper follows a person and talks" behavior. |
 | `pepper_settings.py` | Opens Pepper's on-tablet Settings menu (Wi-Fi, volume, language) — no login needed. |
 | `pepper_autostart.py` | Enable/disable an installed Choregraphe behavior to run at boot. |
@@ -104,7 +105,7 @@ CTRL+WASD/QE . move the HEAD instead of the base   G ....... recenter head
 H/J .......... left arm up/down    L/K ... right arm up/down
 O/P .......... open/close both hands
 ENTER ........ type a message -> shows on tablet + Pepper speaks it
-CTRL+M ....... open menu (follow-me, voice commands, dialogue, emotes, LEDs)
+CTRL+M ....... open menu (follow-me, voice commands, dialogue, emotes, navigation, LEDs)
 [ / ] ........ speed scale down/up   1/2/... select camera   C cycle camera
 F ............ fullscreen   SPACE emergency stop   ESC quit
 ```
@@ -116,6 +117,46 @@ The full, authoritative control list lives in the docstring at the top of
 > tracking, idle head movement) so it doesn't fight your manual control, and it
 > lowers the base's safety-margin so teleop actually moves. Both are **restored on
 > exit** (press `ESC` to quit cleanly rather than killing the process).
+
+### Mapping & remembered spots (Navigation menu)
+
+Open the menu (`CTRL+M`) → **Navigation (map & spots)…** to map a space with
+ALNavigation and return to spots later:
+
+1. **Explore & map area** — Pepper drives itself around and builds a metrical map
+   (a few minutes; keep the area clear). The **radius** (cycle it with *Map radius*)
+   caps how far from the start it maps — bump it to `8–12 m` and start from the
+   *centre* of the space for a bigger map. When it finishes, the map is auto-saved
+   on the robot and localization stays running. *Voice: "explore the area".*
+2. **Remember this spot** — drive Pepper somewhere (or let it be), then save its
+   current position in the map under a name (`spot 1`, `spot 2`, …). *Voice: "remember
+   this spot".*
+3. **Go to spot…** — pick a remembered spot and Pepper navigates back to it,
+   avoiding obstacles.
+4. **Load current map & localize** — in a later session, reload the current map so
+   you can return to spots again. Place Pepper where it started mapping first — it
+   relocalizes at the map origin.
+
+**Multiple maps (one per room).** ALNavigation builds one map per explore run and
+can't stitch runs together, so cover a big/multi-room space as *separate* maps:
+
+- **Map: … (N maps)** opens the maps list. Pick a map to **switch** to it (drive
+  Pepper to that room's start point first — switching reloads and relocalizes it),
+  or **+ New map** to start a fresh one that the next *Explore* fills. *Voice: "new
+  map".* The active map is marked `*`.
+- Explore / Remember / Go-to / Forget all act on the **current** map only, so each
+  room keeps its own map and its own spots.
+
+Everything is saved to `pepper_map.json` next to the app (git-ignored — it's
+robot-specific runtime state; an older single-map file is migrated automatically
+into `map 1`). While exploring or navigating, ALNavigation owns the base, so
+keyboard/voice driving is paused (HUD shows `NAV`); pick **Stop navigation** (or
+say "stop navigation") to abort and take back control.
+
+> **Note:** Mapping and navigation need `ALNavigation`, which is present on
+> Pepper's NAOqi. Dead-reckoning drift makes a single map less reliable the larger
+> it gets (~5–8 m is the sweet spot) — for anything bigger, prefer several smaller
+> per-room maps over one large one, and re-explore if a map goes stale.
 
 ---
 

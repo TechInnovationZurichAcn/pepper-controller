@@ -18,9 +18,13 @@ Controls (holonomic base, "strafe" scheme):
     O / P ......... open / close both hands (grab & release; hands are open/close only)
     ENTER ......... type a message; ENTER again shows it on the tablet + says it (ESC cancels)
     CTRL + M ...... open/close the menu (follow-me, voice commands, dialogue, face
-                    characteristics, hi emote, LEDs) — Up/Down move, ENTER select, ESC back
+                    characteristics, hi emote, navigation/mapping, LEDs) — Up/Down move,
+                    ENTER select, ESC back
+                    Navigation submenu: explore & map the area, remember the current
+                    spot, then drive back to any remembered spot (ALNavigation).
                     Voice commands (menu): say "move forward/backward", "turn left/right",
-                    "stop", "look left", "raise left arm", "follow me", "wave", "red eyes"...
+                    "stop", "look left", "raise left arm", "follow me", "wave", "red eyes",
+                    "explore the area", "remember this spot"...
     [ / ] ......... decrease / increase speed scale
     1 / 2 / ... ... select camera by index (1=top, 2=bottom, 3/4 if present)
     C ............. cycle top <-> bottom camera
@@ -62,6 +66,7 @@ except ImportError:
     sys.exit(1)
 
 import pepper_features as feat
+import pepper_navigation as nav_feat
 
 
 # --- NAOqi video constants (ALVideoDevice) ---
@@ -450,7 +455,66 @@ def make_led_menu(leds, parent):
     }
 
 
-def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url):
+def make_nav_menu(nav, parent):
+    """Mapping + remembered-spots submenu. Rebuilt each time it's opened, so the
+    spot list and status reflect the current Navigator state."""
+
+    def go_menu():
+        names = nav.spot_names()
+        items = [{"label": (lambda n=n: "Go to {}".format(n)),
+                  "action": (lambda n=n: _do(lambda: nav.go_to_spot(n), close=True))}
+                 for n in names]
+        if not items:
+            items.append({"label": lambda: "(no spots yet)", "action": lambda: {}})
+        items.append({"label": lambda: "< Back", "action": lambda: {"back": True}})
+        return {"title": "Go to spot", "index": 0, "parent": menu, "items": items}
+
+    def maps_menu():
+        names = nav.map_names()
+        items = []
+        for n in names:
+            spots = len(nav.maps.get(n, {}).get("spots", {}))
+            marker = "* " if n == nav.current else "  "
+            items.append({
+                "label": (lambda n=n, s=spots, m=marker: "{}{} ({} spots)".format(m, n, s)),
+                "action": (lambda n=n: _do(lambda: nav.switch_map(n), close=True))})
+        if not items:
+            items.append({"label": lambda: "(no maps yet)", "action": lambda: {}})
+        items.append({"label": lambda: "+ New map (explore next)",
+                      "action": lambda: _do(nav.new_map)})
+        items.append({"label": lambda: "< Back", "action": lambda: {"back": True}})
+        return {"title": "Maps (switch room)", "index": 0, "parent": menu, "items": items}
+
+    menu = {
+        "title": "Navigation",
+        "index": 0,
+        "parent": parent,
+        "items": [
+            {"label": lambda: "Map: {} ({} maps)  [{}]".format(
+                nav.current_map, len(nav.maps), nav.status),
+             "action": lambda: {"submenu": maps_menu()}},
+            {"label": lambda: "Explore & map '{}' ({:.0f}m)".format(
+                nav.current_map, nav.explore_radius),
+             "action": lambda: _do(nav.explore, close=True)},
+            {"label": lambda: "Map radius: {:.0f}m (press to cycle)".format(nav.explore_radius),
+             "action": lambda: _do(nav.cycle_radius)},
+            {"label": lambda: "Remember this spot ({} saved)".format(len(nav.spots)),
+             "action": lambda: _do(nav.remember_spot, close=True)},
+            {"label": lambda: "Go to spot...",
+             "action": lambda: {"submenu": go_menu()}},
+            {"label": lambda: "Load current map & localize",
+             "action": lambda: _do(nav.load_map, close=True)},
+            {"label": lambda: "Stop navigation",
+             "action": lambda: _do(nav.stop)},
+            {"label": lambda: "Forget spots in this map",
+             "action": lambda: _do(nav.forget_spots)},
+            {"label": lambda: "< Back", "action": lambda: {"back": True}},
+        ],
+    }
+    return menu
+
+
+def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav=None):
     menu = {"title": "Menu", "index": 0, "parent": None, "items": []}
     items = []
     if follow is not None:
@@ -475,6 +539,10 @@ def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url)
         "label": lambda: "67 emote",
         "action": lambda: _do(lambda: feat.do_67_emote(session, tts, tablet=tablet, gif_url=gif_url),
                               close=True, suspend=feat.emote_67_duration())})
+    if nav is not None:
+        items.append({
+            "label": lambda: "Navigation (map & spots)...",
+            "action": lambda: {"submenu": make_nav_menu(nav, menu)}})
     if leds is not None:
         items.append({
             "label": lambda: "LEDs...",
@@ -549,7 +617,7 @@ def toggle_exclusive(primary, other):
 # (the main loop asserts it); features call their services directly.
 
 def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, targets, state,
-                         tablet, gif_url):
+                         tablet, gif_url, nav=None):
     def timed_move(vx, vy, vth, ms):
         state["vx"], state["vy"], state["vth"] = vx, vy, vth
         state["move_until"] = pygame.time.get_ticks() + ms
@@ -634,6 +702,14 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
         add(("follow me",), lambda: (follow.start() if not follow.active else None))
         add(("stop following", "stop follow"), lambda: (follow.stop() if follow.active else None))
 
+    if nav is not None:
+        add(("explore", "explore the area", "map the area", "map this room"), nav.explore)
+        add(("new map", "start a new map", "map a new room"), lambda: nav.new_map())
+        add(("remember this spot", "remember spot", "save this spot"),
+            lambda: nav.remember_spot())
+        add(("stop navigation", "stop exploring", "stop mapping"), nav.stop)
+        add(("load map", "load the map"), nav.load_map)
+
     add(("read my face", "who am i", "how do i look", "guess my age"),
         lambda: feat.say_face_characteristics(session, tts))
     add(("wave", "say hi", "say hello", "wave hello"), hi)
@@ -688,6 +764,11 @@ def main(ip, port, cam_id, resolution, fps):
     except Exception as exc:
         dialogue = None
         print("WARN: ALDialog unavailable, dialogue disabled: {}".format(exc))
+    try:
+        nav = nav_feat.Navigator(session)
+    except Exception as exc:
+        nav = None
+        print("WARN: ALNavigation unavailable, mapping disabled: {}".format(exc))
     # 67 GIF: upload it onto the robot so its tablet serves it locally/offline
     # (same-origin, the reliable path). Fall back to laptop-hosting if that fails.
     assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -717,7 +798,7 @@ def main(ip, port, cam_id, resolution, fps):
     # velocity (move_until) and a joint-assertion suspend window (for posture/emotes).
     state = {"vx": 0.0, "vy": 0.0, "vth": 0.0, "move_until": 0, "suspend_until": 0}
     voice_commands = build_voice_commands(
-        motion, posture, session, tts, follow, leds, dialogue, targets, state, tablet, gif_url)
+        motion, posture, session, tts, follow, leds, dialogue, targets, state, tablet, gif_url, nav)
     try:
         voice = feat.VoiceRecognizer(session, voice_commands)
     except Exception as exc:
@@ -765,7 +846,7 @@ def main(ip, port, cam_id, resolution, fps):
                     if event.key == pygame.K_m and ctrl_held:
                         # CTRL+M toggles the menu (works whether open or closed).
                         menu = None if menu is not None else make_main_menu(
-                            session, follow, leds, tts, dialogue, voice, tablet, gif_url)
+                            session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav)
                     elif menu is not None:
                         items = menu["items"]
                         if event.key in (pygame.K_UP, pygame.K_w):
@@ -832,8 +913,10 @@ def main(ip, port, cam_id, resolution, fps):
             typing = text_input is not None
             menu_open = menu is not None
             following = follow is not None and follow.active
-            # Keyboard direct control is blocked while typing, in a menu, or following.
-            controllable = not typing and not menu_open and not following
+            nav_busy = nav is not None and nav.busy
+            # Keyboard direct control is blocked while typing, in a menu, following, or
+            # while ALNavigation is driving the base (exploring / heading to a spot).
+            controllable = not typing and not menu_open and not following and not nav_busy
             head_mode = controllable and (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL])
             key_vel = compute_velocity(keys, speed) if (controllable and not head_mode) else (0.0, 0.0, 0.0)
             if controllable:
@@ -867,8 +950,9 @@ def main(ip, port, cam_id, resolution, fps):
                            (HEAD_JOINTS if head_ours else []) + (ARM_JOINTS if arms_ours else []))
 
             # Base: keep re-sending (moveToward is "sticky" but a dropped command or a
-            # focus-loss frame would stall it). Skip while following — tracker owns base.
-            if not following:
+            # focus-loss frame would stall it). Skip while following or navigating —
+            # ALTracker / ALNavigation own the base then.
+            if not following and not nav_busy:
                 if base_vel != last_vel or (now - last_send) >= KEEPALIVE_MS:
                     motion.moveToward(*base_vel)
                     last_vel = base_vel
@@ -901,6 +985,8 @@ def main(ip, port, cam_id, resolution, fps):
             cam_label = {CAM_TOP: "top", CAM_BOTTOM: "bottom"}.get(camera.cam_id, "cam")
             if menu_open:
                 mode = "MENU"
+            elif nav_busy:
+                mode = "NAV"
             elif following:
                 mode = "FOLLOW"
             elif typing:
@@ -916,6 +1002,8 @@ def main(ip, port, cam_id, resolution, fps):
             ]
             if voice is not None and voice.active:
                 hud_lines.append("voice: ON  last: {}".format(voice.last_word or "-"))
+            if nav is not None and (nav.busy or nav.status not in ("idle", "")):
+                hud_lines.append("nav: {}  spots: {}".format(nav.status, len(nav.spots)))
             if typing:
                 hud_lines.append("tablet> {}_  (ENTER=send, ESC=cancel)".format(text_input))
             draw_hud(screen, font, hud_lines)
@@ -927,6 +1015,8 @@ def main(ip, port, cam_id, resolution, fps):
         try:
             if follow is not None and follow.active:
                 follow.stop()
+            if nav is not None:
+                nav.stop()
             if dialogue is not None and dialogue.active:
                 dialogue.stop()
             if voice is not None and voice.active:
