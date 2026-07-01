@@ -30,4 +30,5 @@ Thumbs.db
 # Navigation map + remembered spots (runtime state, robot-specific paths)
 pepper_map.json
 
-# Note: assets/67.gif IS committed on purpose — the 67 emote deploys it to the robot.
+# Note: assets/67.gif and assets/clown-circus-music.mp3 ARE committed on purpose —
+# the 67 emote and the clown dance deploy them to the robot.

@@ -154,6 +154,17 @@ class Navigator(object):
     def map_names(self):
         return sorted(self.maps.keys())
 
+    def next_map(self):
+        """Switch to the next map in the list and localize it (voice-friendly, no
+        need to say a map name). No-op if there's fewer than two maps."""
+        names = self.map_names()
+        if len(names) < 2:
+            print("nav: need at least two maps to cycle")
+            _say(self.tts, "I only have one map." if names else "I have no maps yet.")
+            return False
+        i = names.index(self.current) if self.current in names else -1
+        return self.switch_map(names[(i + 1) % len(names)])
+
     # -- persistence -------------------------------------------------------
 
     def _load_store(self):

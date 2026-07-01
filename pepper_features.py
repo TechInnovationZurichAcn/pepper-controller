@@ -637,6 +637,189 @@ def do_67_emote(session, tts, duration=EMOTE_67_DURATION_S, tablet=None, gif_url
     return emote_67_duration()
 
 
+# Clown dance: scp a music file onto the robot (so ALAudioPlayer plays it locally /
+# offline, loud, through Pepper's own speakers), then run a continuous sine-driven
+# wobble across head/arms/hips/knee/hands for the song's duration — a "clown" jig.
+# No base motion: the teleop keeps sending moveToward(0,0,0) as a keepalive, which
+# would fight base moves, so the dance stays upper-body + legs only (like the 67).
+CLOWN_MP3 = "clown-circus-music.mp3"
+CLOWN_DANCE_DURATION_S = 20.0    # how long Pepper dances (music loops to fill it)
+CLOWN_RESET_S = 3.0              # extra suspend so the StandInit reset outlasts itself
+CLOWN_TICK_S = 0.05             # motion update period (smooth = frequent small updates)
+CLOWN_BEAT_HZ = 2.0             # bounce/sway beat (circus march is ~2 Hz)
+CLOWN_ARM_HZ = 1.0             # arms swing at half the beat
+_clown_lock = threading.Lock()  # only one dance at a time
+
+# Joints driven every tick, and how each maps onto the beat/arm sine waves. Kept
+# well inside Pepper's limits so nothing hits a hard stop.
+_CLOWN_NAMES = ["HeadYaw", "HeadPitch",
+                "LShoulderPitch", "RShoulderPitch",
+                "LShoulderRoll", "RShoulderRoll",
+                "LElbowRoll", "RElbowRoll",
+                "HipRoll", "KneePitch",
+                "LHand", "RHand"]
+
+
+def clown_dance_duration():
+    """How long the caller should suspend joint assertion (incl. the reset)."""
+    return CLOWN_DANCE_DURATION_S + CLOWN_RESET_S
+
+
+def deploy_audio_to_robot(ip, assets_dir, filename=CLOWN_MP3, user="nao", password="pepper"):
+    """scp an audio file onto the robot so ALAudioPlayer can play it offline through
+    Pepper's speakers. Returns the remote path on success, else None (dance is then
+    silent). Same non-interactive SSH_ASKPASS trick as the 67 GIF deploy."""
+    local = os.path.join(assets_dir, filename)
+    if not os.path.exists(local):
+        print("WARN: {} missing in {}, clown dance will be silent".format(filename, assets_dir))
+        return None
+
+    askpass = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
+    askpass.write("#!/bin/sh\necho '{}'\n".format(password))
+    askpass.close()
+    os.chmod(askpass.name, 0o700)
+    env = dict(os.environ)
+    env["SSH_ASKPASS"] = askpass.name
+    env["SSH_ASKPASS_REQUIRE"] = "force"
+    env.setdefault("DISPLAY", ":0")
+    opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+    target = "{}@{}".format(user, ip)
+    remote = "/home/{}/{}".format(user, filename)
+    try:
+        subprocess.run(["setsid", "-w", "scp"] + opts + [local, "{}:{}".format(target, remote)],
+                       env=env, check=True, timeout=120,
+                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("clown music deployed to robot -> {}".format(remote))
+        return remote
+    except Exception as exc:
+        print("WARN: clown audio deploy failed ({}). Dance will be silent.".format(exc))
+        return None
+    finally:
+        try:
+            os.unlink(askpass.name)
+        except Exception:
+            pass
+
+
+def do_clown_dance(session, tts=None, audio_path=None, duration=CLOWN_DANCE_DURATION_S):
+    """Play the clown music (looped, via ALAudioPlayer) and wobble to it for
+    `duration` seconds, then stop the music and reset to a clean stance.
+
+    Hardened like the 67 emote: a lock ignores re-triggers, wakeUp + full stiffness
+    make the joints driveable, arm collision protection is disabled (people/props
+    in front otherwise block arm moves) and restored afterwards. Dances with no
+    music if `audio_path` is None (deploy failed / file missing)."""
+    if not _clown_lock.acquire(False):
+        return clown_dance_duration()  # one already running — ignore this trigger
+
+    def _work():
+        motion = None
+        audio = None
+        try:
+            try:
+                motion = session.service("ALMotion")
+            except Exception as exc:
+                print("WARN: clown dance — no ALMotion: {}".format(exc))
+                return
+            try:
+                posture = session.service("ALRobotPosture")
+            except Exception:
+                posture = None
+            if audio_path:
+                try:
+                    audio = session.service("ALAudioPlayer")
+                except Exception as exc:
+                    print("WARN: clown dance — no ALAudioPlayer: {}".format(exc))
+
+            # Make the whole body driveable and unblockable.
+            try:
+                motion.wakeUp()
+            except Exception:
+                pass
+            try:
+                motion.setExternalCollisionProtectionEnabled("Arms", False)
+            except Exception as exc:
+                print("WARN: clown could not disable arm collision protection: {}".format(exc))
+            for chain in ("Head", "LArm", "RArm"):
+                try:
+                    motion.setStiffnesses(chain, 1.0)
+                except Exception:
+                    pass
+            try:
+                motion.setStiffnesses(["HipRoll", "KneePitch"], 1.0)
+            except Exception:
+                pass
+
+            # Start the music looped in the background (fills the whole dance). These
+            # qi service objects have no legacy `.post` async proxy, so — like the rest
+            # of this codebase — we run the BLOCKING playFileInLoop in a thread and let
+            # stopAll() below unblock it. Bump the speaker volume so it's audible.
+            if audio is not None:
+                try:
+                    session.service("ALAudioDevice").setOutputVolume(80)
+                except Exception:
+                    pass
+
+                def _music():
+                    try:
+                        print("clown: playing {}".format(audio_path))
+                        audio.playFileInLoop(audio_path)  # blocks until stopAll()
+                    except Exception as exc:
+                        print("WARN: clown music playback failed: {}".format(exc))
+
+                threading.Thread(target=_music, daemon=True).start()
+            elif audio_path is None:
+                print("clown: dancing without music (no file uploaded to the robot)")
+
+            end_t = time.time() + duration
+            start = time.time()
+            while time.time() < end_t:
+                t = time.time() - start
+                beat = math.sin(2.0 * math.pi * CLOWN_BEAT_HZ * t)
+                arm = math.sin(2.0 * math.pi * CLOWN_ARM_HZ * t)
+                head = math.sin(2.0 * math.pi * (CLOWN_BEAT_HZ / 2.0) * t)
+                vals = [
+                    0.5 * head,               # HeadYaw   — look side to side
+                    -0.2 + 0.15 * beat,       # HeadPitch — bob
+                    0.6 - 0.7 * arm,          # LShoulderPitch — arms alternate up/down
+                    0.6 + 0.7 * arm,          # RShoulderPitch
+                    0.4 + 0.3 * abs(arm),     # LShoulderRoll — flap out (must stay +)
+                    -0.4 - 0.3 * abs(arm),    # RShoulderRoll (must stay -)
+                    -1.0 - 0.3 * beat,        # LElbowRoll (must stay -)
+                    1.0 + 0.3 * beat,         # RElbowRoll (must stay +)
+                    0.25 * beat,              # HipRoll — sway
+                    0.09 * (1.0 + beat),      # KneePitch — bounce (0..0.18)
+                    0.5 + 0.5 * beat,         # LHand — open/close on the beat
+                    0.5 - 0.5 * beat,         # RHand — opposite
+                ]
+                try:
+                    motion.setAngles(_CLOWN_NAMES, vals, 0.7)
+                except Exception:
+                    pass
+                time.sleep(CLOWN_TICK_S)
+
+            if audio is not None:
+                try:
+                    audio.stopAll()
+                except Exception:
+                    pass
+            if posture is not None:
+                try:
+                    posture.goToPosture("StandInit", 0.5)
+                except Exception:
+                    pass
+        finally:
+            if motion is not None:
+                try:
+                    motion.setExternalCollisionProtectionEnabled("Arms", True)
+                except Exception:
+                    pass
+            _clown_lock.release()
+
+    _run_async(_work)
+    return clown_dance_duration()
+
+
 class Leds(object):
     """Cycle Pepper's eye (FaceLeds) and chest (ChestLeds) RGB groups, and toggle
     the blue-only ear LEDs (EarLeds)."""

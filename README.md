@@ -21,7 +21,7 @@ Confirmed against **NAOqi 2.5.10.7** (classic Pepper).
 | `pepper_settings.py` | Opens Pepper's on-tablet Settings menu (Wi-Fi, volume, language) — no login needed. |
 | `pepper_autostart.py` | Enable/disable an installed Choregraphe behavior to run at boot. |
 | `deploy_67.sh` | Uploads the `assets/67.gif` emote to Pepper's own web server (needs SSH). |
-| `assets/` | `67.gif` + `67.html` served on the tablet by the "67" emote. |
+| `assets/` | `67.gif` + `67.html` served on the tablet by the "67" emote; `clown-circus-music.mp3` uploaded to the robot for the clown dance. |
 
 ---
 
@@ -100,8 +100,8 @@ A resizable pygame window opens showing the head camera. It captures the keyboar
 
 ```
 W/S/A/D ...... drive (forward/back, strafe)       Q/E ..... rotate
-SHIFT ........ boost to full speed
 CTRL+WASD/QE . move the HEAD instead of the base   G ....... recenter head
+SHIFT+WASD/QE  move the HIP: W/S lean fwd/back, A/D lean left/right, Q/E crouch/rise
 H/J .......... left arm up/down    L/K ... right arm up/down
 O/P .......... open/close both hands
 ENTER ........ type a message -> shows on tablet + Pepper speaks it
@@ -117,6 +117,28 @@ The full, authoritative control list lives in the docstring at the top of
 > tracking, idle head movement) so it doesn't fight your manual control, and it
 > lowers the base's safety-margin so teleop actually moves. Both are **restored on
 > exit** (press `ESC` to quit cleanly rather than killing the process).
+
+### Voice commands
+
+Turn voice on from the menu (**Voice commands: ON**), then speak. **Every menu
+action has a spoken equivalent** — you don't need the menu once voice is on:
+
+| Category | Say… |
+|----------|------|
+| Drive | "move forward/backward", "turn left/right", "strafe left", "stop" |
+| Head | "look left/right/up/down", "look forward" |
+| Arms / hands | "raise/lower left arm", "arms down", "open/close hands" |
+| Posture | "stand up", "sit down" |
+| Emotes | "wave", "six seven", "clown dance" |
+| Face | "read my face" |
+| Follow | "follow me", "stop following" |
+| Chat | "start dialogue", "stop dialogue" |
+| LEDs | "cycle eyes", "cycle chest", "toggle ears", "red eyes", "turn off lights" |
+| Mapping | "explore the area", "new map", "next map", "bigger map", "remember this spot", "go to spot one", "load map", "forget spots", "stop navigation" |
+| Voice | "stop listening" (turns voice off) |
+
+Word-spotting is used, so a phrase works inside a sentence. The complete phrase
+list (including synonyms) is in `build_voice_commands()` in `pepper_teleop.py`.
 
 ### Mapping & remembered spots (Navigation menu)
 

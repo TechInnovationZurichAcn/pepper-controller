@@ -10,16 +10,17 @@ Controls (holonomic base, "strafe" scheme):
     W / S ......... drive forward / backward   (x)
     A / D ......... strafe left / right         (y)
     Q / E ......... rotate left / right         (theta)
-    SHIFT ......... boost to full speed while held
     CTRL + WASD/QE  move the HEAD instead of the base (W/S tilt, A/D/Q/E pan)
+    SHIFT + WASD/QE  move the HIP instead of the base: W/S lean forward/back,
+                    A/D lean left/right, Q/E crouch/rise (knee)
     G ............. recenter the head
     H / J ......... left arm up / down
     L / K ......... right arm up / down
     O / P ......... open / close both hands (grab & release; hands are open/close only)
     ENTER ......... type a message; ENTER again shows it on the tablet + says it (ESC cancels)
     CTRL + M ...... open/close the menu (follow-me, voice commands, dialogue, face
-                    characteristics, hi emote, navigation/mapping, LEDs) — Up/Down move,
-                    ENTER select, ESC back
+                    characteristics, hi emote, 67 emote, clown dance, navigation/mapping,
+                    LEDs) — Up/Down move, ENTER select, ESC back
                     Navigation submenu: explore & map the area, remember the current
                     spot, then drive back to any remembered spot (ALNavigation).
                     Voice commands (menu): say "move forward/backward", "turn left/right",
@@ -78,7 +79,6 @@ COLOR_RGB = 11        # kRGBColorSpace, 3 bytes/pixel
 
 # --- teleop tuning ---
 DEFAULT_SPEED = 0.9   # fraction of max velocity for normal driving
-BOOST_SPEED = 1.0     # while SHIFT held
 # Pepper brakes early to keep a safety bubble; lower it so teleop actually moves.
 # Trade-off: less obstacle margin. Restored to defaults on exit. (Base still caps ~0.35 m/s.)
 TELEOP_ORTHO_SECURITY = 0.1    # default 0.4
@@ -95,17 +95,22 @@ KEEPALIVE_MS = 250    # re-send the current velocity at least this often while h
 # Rates are in rad/SECOND (frame-rate independent) so motion is smooth and fast.
 HEAD_RATE = 1.6       # rad/s the head target moves while a head key is held
 ARM_RATE = 2.0        # rad/s the arm target moves while an arm key is held
+HIP_RATE = 0.8        # rad/s the hip/knee target moves while a hip key is held (slower = stable)
 JOINT_SPEED = 0.5     # fraction of max joint speed; high so joints track the target
 
 HEAD_JOINTS = ["HeadYaw", "HeadPitch"]
 ARM_JOINTS = ["LShoulderPitch", "RShoulderPitch"]
-MANAGED_JOINTS = HEAD_JOINTS + ARM_JOINTS
+HIP_JOINTS = ["HipRoll", "HipPitch", "KneePitch"]  # lean L/R, lean fwd/back, crouch/rise
+MANAGED_JOINTS = HEAD_JOINTS + ARM_JOINTS + HIP_JOINTS
 # (min, max) rad clamps, kept safely inside the real joint limits.
 JOINT_LIMITS = {
     "HeadYaw": (-2.0, 2.0),
     "HeadPitch": (-0.6, 0.5),      # negative = look up
     "LShoulderPitch": (-2.0, 2.0),  # negative = arm up, positive = arm down
     "RShoulderPitch": (-2.0, 2.0),
+    "HipRoll": (-0.45, 0.45),      # real limit ~+-0.51; + = lean robot's left
+    "HipPitch": (-0.9, 0.9),       # real limit ~+-1.04; + = lean forward
+    "KneePitch": (-0.45, 0.45),    # real limit ~+-0.51; - = crouch, + = rise
 }
 # Voice commands: discrete phrases move the base at a fixed velocity for a short
 # burst, then it auto-stops. Rates are fractions of max; durations in ms.
@@ -179,6 +184,7 @@ def prepare_robot(session):
         motion.setStiffnesses("Head", 1.0)
         motion.setStiffnesses("LArm", 1.0)
         motion.setStiffnesses("RArm", 1.0)
+        motion.setStiffnesses(["HipRoll", "HipPitch", "KneePitch"], 1.0)  # for SHIFT hip control
     except Exception as exc:
         print("WARN: wakeUp/stiffness failed: {}".format(exc))
     try:
@@ -312,8 +318,6 @@ def compute_velocity(keys, speed):
         theta += 1.0
     if keys[pygame.K_e]:
         theta -= 1.0
-    if keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]:
-        speed = BOOST_SPEED
     return x * speed, y * speed, theta * speed
 
 
@@ -334,19 +338,47 @@ def compute_head(keys):
     return dyaw, dpitch
 
 
+def compute_hip(keys):
+    """While SHIFT is held, map keys to hip/knee directions in {-1, 0, 1}.
+
+    Roll: A = lean left (+), D = lean right (-).  Pitch: W = lean forward (+),
+    S = lean back (-).  Knee: Q = crouch (-), E = rise (+).
+    """
+    droll = dpitch = dknee = 0.0
+    if keys[pygame.K_a]:
+        droll += 1.0
+    if keys[pygame.K_d]:
+        droll -= 1.0
+    if keys[pygame.K_w]:
+        dpitch += 1.0
+    if keys[pygame.K_s]:
+        dpitch -= 1.0
+    if keys[pygame.K_q]:
+        dknee -= 1.0
+    if keys[pygame.K_e]:
+        dknee += 1.0
+    return droll, dpitch, dknee
+
+
 def clamp_joint(name, value):
     lo, hi = JOINT_LIMITS[name]
     return max(lo, min(hi, value))
 
 
-def update_targets(targets, keys, head_mode, dt):
+def update_targets(targets, keys, head_mode, hip_mode, dt):
     """Nudge managed-joint targets from held keys, scaled by elapsed time `dt` (s)."""
     head_step = HEAD_RATE * dt
     arm_step = ARM_RATE * dt
+    hip_step = HIP_RATE * dt
     if head_mode:
         dyaw, dpitch = compute_head(keys)
         targets["HeadYaw"] = clamp_joint("HeadYaw", targets["HeadYaw"] + dyaw * head_step)
         targets["HeadPitch"] = clamp_joint("HeadPitch", targets["HeadPitch"] + dpitch * head_step)
+    elif hip_mode:
+        droll, dpitch, dknee = compute_hip(keys)
+        targets["HipRoll"] = clamp_joint("HipRoll", targets["HipRoll"] + droll * hip_step)
+        targets["HipPitch"] = clamp_joint("HipPitch", targets["HipPitch"] + dpitch * hip_step)
+        targets["KneePitch"] = clamp_joint("KneePitch", targets["KneePitch"] + dknee * hip_step)
     # Arms move any time (not while driving-key-blocked): H/J = left up/down, L/K = right up/down.
     if keys[pygame.K_h]:
         targets["LShoulderPitch"] = clamp_joint("LShoulderPitch", targets["LShoulderPitch"] - arm_step)
@@ -514,7 +546,8 @@ def make_nav_menu(nav, parent):
     return menu
 
 
-def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav=None):
+def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav=None,
+                   clown_audio=None):
     menu = {"title": "Menu", "index": 0, "parent": None, "items": []}
     items = []
     if follow is not None:
@@ -539,6 +572,10 @@ def make_main_menu(session, follow, leds, tts, dialogue, voice, tablet, gif_url,
         "label": lambda: "67 emote",
         "action": lambda: _do(lambda: feat.do_67_emote(session, tts, tablet=tablet, gif_url=gif_url),
                               close=True, suspend=feat.emote_67_duration())})
+    items.append({
+        "label": lambda: "Clown dance",
+        "action": lambda: _do(lambda: feat.do_clown_dance(session, tts, audio_path=clown_audio),
+                              close=True, suspend=feat.clown_dance_duration())})
     if nav is not None:
         items.append({
             "label": lambda: "Navigation (map & spots)...",
@@ -617,7 +654,7 @@ def toggle_exclusive(primary, other):
 # (the main loop asserts it); features call their services directly.
 
 def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, targets, state,
-                         tablet, gif_url, nav=None):
+                         tablet, gif_url, nav=None, clown_audio=None):
     def timed_move(vx, vy, vth, ms):
         state["vx"], state["vy"], state["vth"] = vx, vy, vth
         state["move_until"] = pygame.time.get_ticks() + ms
@@ -659,6 +696,12 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
             state["suspend_until"],
             pygame.time.get_ticks() + int(feat.emote_67_duration() * 1000))
         feat.do_67_emote(session, tts, tablet=tablet, gif_url=gif_url)
+
+    def clown_dance():
+        state["suspend_until"] = max(
+            state["suspend_until"],
+            pygame.time.get_ticks() + int(feat.clown_dance_duration() * 1000))
+        feat.do_clown_dance(session, tts, audio_path=clown_audio)
 
     cmds = {}
 
@@ -705,15 +748,24 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
     if nav is not None:
         add(("explore", "explore the area", "map the area", "map this room"), nav.explore)
         add(("new map", "start a new map", "map a new room"), lambda: nav.new_map())
+        add(("next map", "switch map", "change map", "other room"), nav.next_map)
+        add(("bigger map", "change map size", "change map radius"), nav.cycle_radius)
         add(("remember this spot", "remember spot", "save this spot"),
             lambda: nav.remember_spot())
         add(("stop navigation", "stop exploring", "stop mapping"), nav.stop)
         add(("load map", "load the map"), nav.load_map)
+        add(("forget spots", "forget all spots", "forget the spots"), nav.forget_spots)
+        # Return to a numbered spot by voice (menu auto-names them "spot 1".."spot 5").
+        _spot_words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+        for _word, _num in _spot_words.items():
+            add(("go to spot {}".format(_word),),
+                lambda n=_num: nav.go_to_spot("spot {}".format(n)))
 
     add(("read my face", "who am i", "how do i look", "guess my age"),
         lambda: feat.say_face_characteristics(session, tts))
     add(("wave", "say hi", "say hello", "wave hello"), hi)
     add(("six seven", "sixty seven", "do the six seven", "sixty seven emote"), sixty_seven)
+    add(("clown dance", "dance", "do a dance", "circus dance", "dance for me"), clown_dance)
 
     if leds is not None:
         add(("red eyes",), lambda: leds.set("FaceLeds", 1, 0, 0))
@@ -723,6 +775,30 @@ def build_voice_commands(motion, posture, session, tts, follow, leds, dialogue, 
         add(("red chest",), lambda: leds.set("ChestLeds", 1, 0, 0))
         add(("blue chest",), lambda: leds.set("ChestLeds", 0, 0, 1))
         add(("turn off lights", "lights off", "lights out"), leds.all_off)
+        # Mirror the LED submenu's cycle/toggle actions.
+        add(("cycle eyes", "change eye color", "next eye color"), leds.cycle_eyes)
+        add(("cycle chest", "change chest color", "next chest color"), leds.cycle_chest)
+        add(("toggle ears", "ears on", "ears off"), leds.toggle_ears)
+
+    if dialogue is not None:
+        # Starting dialogue must stop voice first (shared recognizer); run it in a
+        # thread so the voice poll thread doesn't join itself while dispatching.
+        def start_chat():
+            if not dialogue.active:
+                threading.Thread(
+                    target=lambda: toggle_exclusive(dialogue, state.get("voice")),
+                    daemon=True).start()
+        add(("start dialogue", "let's chat", "let us chat", "chat with me"), start_chat)
+        add(("stop dialogue", "stop chatting", "stop talking"),
+            lambda: dialogue.stop() if dialogue.active else None)
+
+    # Turn voice recognition off by voice (threaded: stop() joins the poll thread,
+    # which is the very thread dispatching this command).
+    def voice_off():
+        v = state.get("voice")
+        if v is not None and v.active:
+            threading.Thread(target=v.stop, daemon=True).start()
+    add(("stop listening", "turn off voice", "stop voice commands", "voice off"), voice_off)
 
     add(("introduce yourself",),
         lambda: speak(tts, "Hello, I am Pepper, a humanoid robot. I can move, "
@@ -782,6 +858,10 @@ def main(ip, port, cam_id, resolution, fps):
             gif_server.start()
             gif_url = gif_server.url("67.html")        # laptop-hosted fallback
 
+    # Clown dance: upload the music onto the robot so ALAudioPlayer plays it offline.
+    # None if the file is missing or the upload fails (the dance then runs silently).
+    clown_audio = feat.deploy_audio_to_robot(ip, assets_dir)
+
     # Seed managed-joint targets from the robot's current pose so nothing jumps.
     try:
         current = motion.getAngles(MANAGED_JOINTS, True)
@@ -798,12 +878,16 @@ def main(ip, port, cam_id, resolution, fps):
     # velocity (move_until) and a joint-assertion suspend window (for posture/emotes).
     state = {"vx": 0.0, "vy": 0.0, "vth": 0.0, "move_until": 0, "suspend_until": 0}
     voice_commands = build_voice_commands(
-        motion, posture, session, tts, follow, leds, dialogue, targets, state, tablet, gif_url, nav)
+        motion, posture, session, tts, follow, leds, dialogue, targets, state, tablet, gif_url, nav,
+        clown_audio)
     try:
         voice = feat.VoiceRecognizer(session, voice_commands)
     except Exception as exc:
         voice = None
         print("WARN: ALSpeechRecognition unavailable, voice commands disabled: {}".format(exc))
+    # Expose the recognizer to voice commands that toggle it / dialogue (built before
+    # it existed) via the shared state dict.
+    state["voice"] = voice
 
     pygame.init()
     pygame.display.set_caption("Pepper teleop")
@@ -827,8 +911,9 @@ def main(ip, port, cam_id, resolution, fps):
     prev_head_ours = True
     prev_arms_ours = True
     running = True
-    print("Connected. Drive with WASD/QE, SHIFT boost, F fullscreen, SPACE stop, ESC quit.")
-    print("Head: hold CTRL + WASD/QE, G recenters. Arms: H/J left up/down, L/K right up/down.")
+    print("Connected. Drive with WASD/QE, F fullscreen, SPACE stop, ESC quit.")
+    print("Head: hold CTRL + WASD/QE, G recenters. Hip: hold SHIFT + WASD/QE.")
+    print("Arms: H/J left up/down, L/K right up/down.")
     print("Hands: O open, P close (grab). Move an arm into place, then P to grip.")
     print("Cameras: 1=top, 2=bottom (3/4 if present), or C to cycle.")
     print("Press ENTER to type a tablet message. Press CTRL+M for the menu.")
@@ -846,7 +931,8 @@ def main(ip, port, cam_id, resolution, fps):
                     if event.key == pygame.K_m and ctrl_held:
                         # CTRL+M toggles the menu (works whether open or closed).
                         menu = None if menu is not None else make_main_menu(
-                            session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav)
+                            session, follow, leds, tts, dialogue, voice, tablet, gif_url, nav,
+                            clown_audio)
                     elif menu is not None:
                         items = menu["items"]
                         if event.key in (pygame.K_UP, pygame.K_w):
@@ -918,9 +1004,13 @@ def main(ip, port, cam_id, resolution, fps):
             # while ALNavigation is driving the base (exploring / heading to a spot).
             controllable = not typing and not menu_open and not following and not nav_busy
             head_mode = controllable and (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL])
-            key_vel = compute_velocity(keys, speed) if (controllable and not head_mode) else (0.0, 0.0, 0.0)
+            # SHIFT (without CTRL) = hip mode: WASD leans the hip, Q/E crouch/rise.
+            hip_mode = (controllable and not head_mode
+                        and (keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]))
+            driving = controllable and not head_mode and not hip_mode
+            key_vel = compute_velocity(keys, speed) if driving else (0.0, 0.0, 0.0)
             if controllable:
-                update_targets(targets, keys, head_mode, dt)
+                update_targets(targets, keys, head_mode, hip_mode, dt)
 
             now = pygame.time.get_ticks()
             # Base velocity priority: keyboard > timed voice move > stop. Pressing a key
@@ -946,8 +1036,11 @@ def main(ip, port, cam_id, resolution, fps):
                 except Exception:
                     pass
             prev_head_ours, prev_arms_ours = head_ours, arms_ours
+            # Hips share the arm suspend logic (emotes like the clown dance drive them):
+            # assert them only when arms are ours.
             assert_targets(motion, targets,
-                           (HEAD_JOINTS if head_ours else []) + (ARM_JOINTS if arms_ours else []))
+                           (HEAD_JOINTS if head_ours else []) + (ARM_JOINTS if arms_ours else [])
+                           + (HIP_JOINTS if arms_ours else []))
 
             # Base: keep re-sending (moveToward is "sticky" but a dropped command or a
             # focus-loss frame would stall it). Skip while following or navigating —
@@ -993,6 +1086,8 @@ def main(ip, port, cam_id, resolution, fps):
                 mode = "TYPE"
             elif head_mode:
                 mode = "HEAD"
+            elif hip_mode:
+                mode = "HIP"
             else:
                 mode = "BASE"
             hud_lines = [
