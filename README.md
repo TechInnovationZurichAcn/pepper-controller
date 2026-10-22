@@ -1,267 +1,134 @@
-# Pepper Teleoperation & Behaviors
+# Pepper MCP
 
-A small Python toolkit for driving a **SoftBank Pepper** robot from a laptop:
-keyboard teleop with a live head-camera feed, a "follow me" behavior, voice
-commands, tablet control, and a few emotes. Talks to the robot over NAOqi
-(`qi`) on port **9559** — no SSH login required for the core apps.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that gives a modern LLM a
+body: **SoftBank Pepper** (NAOqi 2.5) seen, heard, spoken through and moved in real time.
 
-Confirmed against **NAOqi 2.5.10.7** (classic Pepper).
+* **Every robot feature as a tool** – speech with gestures, free-speech hearing, camera
+  snapshots, people/face/touch/sound perception, base and joint motion, animations and
+  custom gestures, LEDs, tablet, following, navigation and maps, behaviours. Full list in
+  [`docs/MCP_ENDPOINTS.md`](docs/MCP_ENDPOINTS.md).
+* **Real-time by design** – the robot pushes audio and ALMemory events to the laptop, the
+  server turns them into events, and the LLM blocks on `wait_for_event` instead of polling.
+  Speech is queued sentence by sentence so Pepper starts talking while the LLM is still
+  writing. Design notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+* **Reflexes** – high five when somebody raises a hand, a wave when someone shows up,
+  eye colours that follow the conversation, a nod when touched: sub-second reactions that
+  run on the server and report back to the LLM as events. All toggleable.
+* **Works without a robot** – `--fake` runs the whole stack against an in-memory NAOqi so
+  you can wire up your LLM client first.
 
----
-
-## What's in here
-
-| File | Purpose |
-|------|---------|
-| `pepper_diag.py` | **Run this first.** Connects, prints the NAOqi version, checks required services, and makes Pepper say hello. |
-| `pepper_teleop.py` | Main app: keyboard drive + live camera in a pygame window, arms/head/hands, voice commands, tablet messages, in-app menu. |
-| `pepper_features.py` | Robot-side actions (follow-me, face characteristics, emotes, LEDs, tablet hosting) imported by the teleop app. Not run directly. |
-| `pepper_navigation.py` | Mapping & remembered-spots via ALNavigation (explore an area, remember spots, drive back to them). Imported by the teleop app. Not run directly. |
-| `pepper_follow_me.py` | Standalone "Pepper follows a person and talks" behavior. |
-| `pepper_settings.py` | Opens Pepper's on-tablet Settings menu (Wi-Fi, volume, language) — no login needed. |
-| `pepper_autostart.py` | Enable/disable an installed Choregraphe behavior to run at boot. |
-| `deploy_67.sh` | Uploads the `assets/67.gif` emote to Pepper's own web server (needs SSH). |
-| `assets/` | `67.gif` + `67.html` served on the tablet by the "67" emote; `clown-circus-music.mp3` uploaded to the robot for the clown dance. |
+This branch contains only the MCP server. The keyboard teleop lives on `main`.
 
 ---
 
-## 1. Prerequisites
+## 1. Requirements
 
-- A **Pepper robot** powered on, with its head on the **same network** as your laptop.
-- **Python 3** on the laptop.
-- Wi-Fi **without client isolation.** School/corporate/guest networks often block
-  device-to-device traffic on port 9559. If you can't connect, put Pepper and the
-  laptop on your **own router** (or a phone hotspot).
+* Pepper (NAOqi 2.5.x) on the same network as your computer, no client isolation
+  (port 9559 **and** a callback port on your machine must be reachable).
+* Python **3.10 – 3.12** (libqi-python has no 3.13 wheels yet).
+* Optional for hearing: a CPU able to run `faster-whisper` `small` (~1 s per sentence) or an
+  OpenAI-compatible transcription API key.
 
-### Find Pepper's IP
-
-Press the **chest button** once — Pepper says its IP address aloud. You'll pass
-this as `--ip <PEPPER_IP>` to every script.
-
----
-
-## 2. Setup
-
-Create a virtual environment and install the two dependencies. The NAOqi Python 3
-bindings ship as the `qi` package on PyPI — no separate pynaoqi SDK download needed.
+## 2. Install
 
 ```bash
-python3 -m venv ~/pepper-venv
-source ~/pepper-venv/bin/activate
-
-pip install qi pygame
+uv venv --python 3.12 .venv && source .venv/bin/activate     # or python3.12 -m venv .venv
+uv pip install -e ".[robot,speech]"                            # qi + faster-whisper + webrtcvad
+# extras: [agent] reference Claude loop, [vision] MediaPipe hand-raise detector, [dev] tests
 ```
 
-Activate the venv in every new shell before running a script:
+## 3. Run
 
 ```bash
-source ~/pepper-venv/bin/activate
+pepper-mcp-verify --ip <PEPPER_IP>            # hardware checklist (see docs/ROBOT_VERIFICATION.md)
+pepper-mcp --ip <PEPPER_IP>                   # MCP over stdio (Claude Desktop / Claude Code)
+pepper-mcp --ip <PEPPER_IP> --preview-port 8765   # + live dashboard at http://<laptop>:8765/
+pepper-mcp --ip <PEPPER_IP> --transport streamable-http --host 0.0.0.0 --http-port 8808
+pepper-mcp --fake --stt none                  # no robot, for client development
 ```
 
----
+Useful flags: `--stt faster-whisper|openai|none`, `--stt-model tiny|base|small|medium`,
+`--stt-language de`, `--language German`, `--liveliness off|calm|lively`, `--barge-in`,
+`--reflexes-off greet,touch_reaction`, `--no-camera`, `--no-audio`,
+`--keep-autonomous-life`. Everything is also an environment variable (`PEPPER_IP`,
+`PEPPER_STT`, …) – see `pepper-mcp --help` and `src/pepper_mcp/config.py`.
 
-## 3. Verify the connection
+### Claude Desktop / Claude Code
 
-Always start with the diagnostic. It confirms your setup, network path, and the
-robot's firmware, then greets you out loud:
+```json
+{
+  "mcpServers": {
+    "pepper": {
+      "command": "/path/to/.venv/bin/pepper-mcp",
+      "args": ["--ip", "192.168.1.42", "--preview-port", "8765"]
+    }
+  }
+}
+```
+
+Then ask Claude to load the `pepper_live_agent` prompt and to start its event loop with
+`wait_for_event`.
+
+### Reference agent loop
 
 ```bash
-python pepper_diag.py --ip <PEPPER_IP>
+uv pip install -e ".[robot,speech,agent]"
+export ANTHROPIC_API_KEY=...          # or `ant auth login`
+pepper-mcp-agent --ip <PEPPER_IP>
 ```
 
-Expected output ends with a spoken "Connection successful. I am ready." and a list
-of available services. If it can't connect:
+`pepper-mcp-agent` starts the server in-process, streams Claude's answers and sends every
+finished sentence to `say` while the rest is still being generated. It uses
+`claude-opus-5-5` with low effort for snappy replies and server-side refusal fallbacks
+(`--no-fallbacks` to turn those off).
 
-- `ping <PEPPER_IP>` — is the robot reachable at all?
-- Double-check the IP (press the chest button again).
-- Port **9559** may be blocked by the network — switch to your own router.
+## 4. How the interaction loop works
 
----
+```
+   person talks ──▶ mic (16 kHz) ──▶ VAD ──▶ STT ──▶ speech.final ──▶ LLM (wait_for_event)
+   hand raised  ──▶ ALWavingDetection ──▶ person.waving ──▶ high_five reflex (≈0.2 s) ──▶ reflex.completed
+   LLM ──▶ say("first sentence") ──▶ ALAnimatedSpeech (gestures) ──▶ tts.finished
+       ──▶ play_gesture / look_at_person / set_leds / camera_snapshot …
+```
 
-## 4. Run the teleop app
+The `pepper_live_agent` prompt (`prompts/get`) tells the model exactly how to run this
+loop. Events are documented by `list_event_types`.
+
+## 5. Project layout
+
+```
+src/pepper_mcp/
+  cli.py, config.py, server.py, runtime.py     entry point, settings, MCP server, wiring
+  robot/        NAOqi wrappers (motion, speech, camera, audio_in, perception, …) + fake.py
+  speech/       VAD, STT backends, utterance listener (echo gating, barge-in)
+  reflexes/     attention, high_five, greet, touch_reaction, low_battery
+  tools/        MCP tools, one module per domain (auto-registered)
+  vision/       optional MediaPipe hand-raise detector
+  preview.py    MJPEG / live audio / SSE side channel; verify.py; agent.py
+docs/           MCP_ENDPOINTS.md, ARCHITECTURE.md, ROBOT_VERIFICATION.md
+tests/          pytest suite against the fake robot
+```
+
+Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new gesture →
+`robot/gestures.py` or the `define_gesture` tool at runtime; new reflex → subclass
+`reflexes.base.Reflex`; new STT → implement `speech.stt.SpeechToText`.
+
+## 6. Development
 
 ```bash
-python pepper_teleop.py --ip <PEPPER_IP>
+uv pip install -e ".[dev]"
+pytest            # fake robot, no hardware
+ruff check src tests
 ```
 
-A resizable pygame window opens showing the head camera. It captures the keyboard.
-
-### Options
-
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--ip` | *(required)* | Pepper's IP address |
-| `--port` | `9559` | NAOqi port |
-| `--camera` | `0` | `0` = top camera, `1` = bottom |
-| `--vga` | off | 640×480 feed (default is 320×240, smoother) |
-| `--fps` | `15` | Requested camera frame rate |
-
-### Controls (summary)
-
-```
-W/S/A/D ...... drive (forward/back, strafe)       Q/E ..... rotate
-CTRL+WASD/QE . move the HEAD instead of the base   G ....... recenter head
-SHIFT+WASD/QE  move the HIP: W/S lean fwd/back, A/D lean left/right, Q/E crouch/rise
-H/J .......... left arm up/down    L/K ... right arm up/down
-O/P .......... open/close both hands
-ENTER ........ type a message -> shows on tablet + Pepper speaks it
-CTRL+M ....... open menu (follow-me, voice, dialogue, don't-touch-me, emotes, navigation, LEDs)
-[ / ] ........ speed scale down/up   1/2/... select camera   C cycle camera
-F ............ fullscreen   SPACE emergency stop   ESC quit
-```
-
-The full, authoritative control list lives in the docstring at the top of
-`pepper_teleop.py`.
-
-> **Note:** On startup the teleop disables Pepper's autonomous life (person
-> tracking, idle head movement) so it doesn't fight your manual control, and it
-> lowers the base's safety-margin so teleop actually moves. Both are **restored on
-> exit** (press `ESC` to quit cleanly rather than killing the process).
-
-### Voice commands
-
-Turn voice on from the menu (**Voice commands: ON**), then speak. **Every menu
-action has a spoken equivalent** — you don't need the menu once voice is on:
-
-| Category | Say… |
-|----------|------|
-| Drive | "move forward/backward", "turn left/right", "strafe left", "stop" |
-| Head | "look left/right/up/down", "look forward" |
-| Arms / hands | "raise/lower left arm", "arms down", "open/close hands" |
-| Posture | "stand up", "sit down" |
-| Emotes | "wave", "six seven", "clown dance" |
-| Face | "read my face" |
-| Follow | "follow me", "stop following" |
-| Chat | "start dialogue", "stop dialogue" |
-| Touch | "stop reacting to touch", "react to touch" |
-| LEDs | "cycle eyes", "cycle chest", "toggle ears", "red eyes", "turn off lights" |
-| Mapping | "explore the area", "new map", "next map", "bigger map", "remember this spot", "go to spot one", "load map", "forget spots", "stop navigation" |
-| Voice | "stop listening" (turns voice off) |
-
-Word-spotting is used, so a phrase works inside a sentence. The complete phrase
-list (including synonyms) is in `build_voice_commands()` in `pepper_teleop.py`.
-
-### Mapping & remembered spots (Navigation menu)
-
-Open the menu (`CTRL+M`) → **Navigation (map & spots)…** to map a space with
-ALNavigation and return to spots later:
-
-1. **Explore & map area** — Pepper drives itself around and builds a metrical map
-   (a few minutes; keep the area clear). The **radius** (cycle it with *Map radius*)
-   caps how far from the start it maps — bump it to `8–12 m` and start from the
-   *centre* of the space for a bigger map. When it finishes, the map is auto-saved
-   on the robot and localization stays running. *Voice: "explore the area".*
-2. **Remember this spot** — drive Pepper somewhere (or let it be), then save its
-   current position in the map under a name (`spot 1`, `spot 2`, …). *Voice: "remember
-   this spot".*
-3. **Go to spot…** — pick a remembered spot and Pepper navigates back to it,
-   avoiding obstacles.
-4. **Load current map & localize** — in a later session, reload the current map so
-   you can return to spots again. Place Pepper where it started mapping first — it
-   relocalizes at the map origin.
-
-**Multiple maps (one per room).** ALNavigation builds one map per explore run and
-can't stitch runs together, so cover a big/multi-room space as *separate* maps:
-
-- **Map: … (N maps)** opens the maps list. Pick a map to **switch** to it (drive
-  Pepper to that room's start point first — switching reloads and relocalizes it),
-  or **+ New map** to start a fresh one that the next *Explore* fills. *Voice: "new
-  map".* The active map is marked `*`.
-- Explore / Remember / Go-to / Forget all act on the **current** map only, so each
-  room keeps its own map and its own spots.
-
-Everything is saved to `pepper_map.json` next to the app (git-ignored — it's
-robot-specific runtime state; an older single-map file is migrated automatically
-into `map 1`). While exploring or navigating, ALNavigation owns the base, so
-keyboard/voice driving is paused (HUD shows `NAV`); pick **Stop navigation** (or
-say "stop navigation") to abort and take back control.
-
-> **Note:** Mapping and navigation need `ALNavigation`, which is present on
-> Pepper's NAOqi. Dead-reckoning drift makes a single map less reliable the larger
-> it gets (~5–8 m is the sweet spot) — for anything bigger, prefer several smaller
-> per-room maps over one large one, and re-explore if a map goes stale.
-
----
-
-## 5. Follow-me behavior (standalone)
-
-Pepper tracks a person and walks to keep a set distance, greeting people as they
-arrive:
-
-```bash
-python pepper_follow_me.py --ip <PEPPER_IP>
-python pepper_follow_me.py --ip <PEPPER_IP> --distance 0.5
-python pepper_follow_me.py --ip <PEPPER_IP> --target Face --language English
-```
-
-| Flag | Default | Meaning |
-|------|---------|---------|
-| `--distance` | `0.6` | Metres Pepper tries to keep from the person |
-| `--target` | `People` | `People` or `Face` detection |
-| `--language` | robot default | TTS language |
-
-Stop with **Ctrl-C** — Pepper stops moving, drops tracking, sits, and rests.
-
----
-
-## 6. Tablet & configuration helpers
-
-**Open the on-tablet Settings menu** (change Wi-Fi / volume / language by hand, no
-login needed):
-
-```bash
-python pepper_settings.py --ip <PEPPER_IP>
-```
-
-**Deploy the "67" GIF emote** to Pepper's web server so the tablet serves it
-locally/offline. This is the one script that needs SSH — login is `nao@<ip>`,
-password `pepper`:
-
-```bash
-./deploy_67.sh <PEPPER_IP>
-```
-
-The teleop app auto-deploys this asset on startup; run the script manually only if
-that fails.
-
----
-
-## 7. Auto-run a behavior at boot (optional)
-
-To make an **installed** Choregraphe behavior run on the tablet at startup (no
-laptop, no router — the tablet talks to NAOqi internally):
-
-```bash
-# List installed behaviors (* = already runs at boot)
-python pepper_autostart.py --ip <PEPPER_IP> --list
-
-# Enable / disable
-python pepper_autostart.py --ip <PEPPER_IP> --enable  followme/behavior_1
-python pepper_autostart.py --ip <PEPPER_IP> --disable followme/behavior_1
-```
-
-The behavior must already be **Packaged & Installed** from Choregraphe first —
-Live-Play behaviors are not installed and won't appear in `--list`.
-
----
-
-## Troubleshooting
+## 7. Troubleshooting
 
 | Symptom | Fix |
-|---------|-----|
-| `couldn't import qi` | Activate the venv: `source ~/pepper-venv/bin/activate` |
-| `couldn't import pygame` | `pip install pygame` inside the venv |
-| `can't reach NAOqi` | Same Wi-Fi? Correct IP? Port 9559 blocked by network isolation → use your own router |
-| Head snaps back / fights you | Expected if autonomous life re-enables; the teleop app disables it — quit with `ESC` to restore cleanly |
-| Robot barely moves | The safety bubble caps base speed (~0.35 m/s); teleop already lowers the margin |
-| `deploy_67.sh` auth fails | SSH login is `nao@<ip>`, password `pepper` |
-
----
-
-## Configuration reference
-
-- **NAOqi port:** `9559` (default everywhere; override with `--port`)
-- **SSH:** `nao@<PEPPER_IP>`, password `pepper` (only `deploy_67.sh` uses it)
-- **Tuning constants** (speeds, joint limits, security margins, voice-command
-  timings) live at the top of `pepper_teleop.py` and `pepper_follow_me.py` — edit
-  there if you need different behavior.
+|---|---|
+| `cannot reach NAOqi` | same Wi-Fi? right IP (chest button)? port 9559 blocked by client isolation → own router |
+| no `speech.final` events | run `pepper-mcp-verify`: `audio_callback` must show ~6 callbacks/s; your firewall must allow inbound TCP from the robot (set `PEPPER_LISTEN_URL=tcp://0.0.0.0:9560` and open it) |
+| hearing slow | `--stt-model base` or `--stt openai`; lower `--vad-end-silence` via `PEPPER_VAD_END_SILENCE_MS=300` |
+| Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` if the room echoes |
+| head snaps back | `set_liveliness off` (BasicAwareness/BackgroundMovement fight explicit head moves) |
+| no `person.waving` | `ALWavingDetection` needs the 3D sensor and a person facing the robot; or `--hand-raise-vision` |
+| `qi` wheel not found | Python 3.13+ – use 3.12 |

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pepper-mcp"
+version = "0.1.0"
+description = "Model Context Protocol server that lets a modern LLM see, hear, talk through and move a SoftBank Pepper robot (NAOqi 2.5) in real time."
+readme = "README.md"
+license = { text = "MIT" }
+# libqi-python (`qi`) ships wheels for CPython 3.7-3.12 only; 3.13 cannot talk to the robot.
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "mcp>=2.0",
+    "numpy>=1.26",
+    "pillow>=10.0",
+]
+
+[project.optional-dependencies]
+# Talking to a real robot (needs CPython <= 3.12, Linux x86_64 or macOS arm64 wheels exist).
+robot = ["qi>=3.1.5"]
+# Local speech-to-text + voice activity detection (offline, no API key).
+speech = ["faster-whisper>=1.0", "webrtcvad-wheels>=2.0.14"]
+# Reference agent loop that drives the robot with Claude.
+agent = ["anthropic>=1.0"]
+# Laptop-side pose / hand detection on camera frames (experimental).
+vision = ["mediapipe>=0.10", "opencv-python-headless>=4.9"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "anyio>=4"]
+all = ["pepper-mcp[robot,speech,agent]"]
+
+[project.scripts]
+pepper-mcp = "pepper_mcp.cli:main"
+pepper-mcp-verify = "pepper_mcp.verify:main"
+pepper-mcp-agent = "pepper_mcp.agent:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pepper_mcp"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["E501", "SIM115", "UP022", "RUF046", "RUF012", "B008", "SIM105", "SIM108", "SIM102", "RUF001", "RUF002", "RUF003", "RUF005", "E741", "B904", "RUF059", "B007", "UP037"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

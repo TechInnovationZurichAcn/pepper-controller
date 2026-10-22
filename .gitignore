@@ -1,34 +1,30 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
 *.egg-info/
 .eggs/
 build/
 dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
 # Virtual environments
 .venv/
 venv/
 env/
-ENV/
 pepper-venv/
 
 # Editors / OS
 .vscode/
 .idea/
 *.swp
-*.swo
 .DS_Store
-Thumbs.db
 
 # Logs / temp
 *.log
 *.tmp
-*.pid
 
-# Navigation map + remembered spots (runtime state, robot-specific paths)
-pepper_map.json
-
-# Note: assets/67.gif and assets/clown-circus-music.mp3 ARE committed on purpose —
-# the 67 emote and the clown dance deploy them to the robot.
+# Runtime state written by the server (robot-specific maps + spots, downloaded STT models)
+pepper_maps.json
+.models/
