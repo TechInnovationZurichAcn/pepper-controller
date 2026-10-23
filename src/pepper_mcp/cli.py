@@ -20,6 +20,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", dest="http_host", help="bind host for HTTP transports (default 127.0.0.1)")
     p.add_argument("--http-port", dest="http_port", type=int, help="port for HTTP transports (default 8808)")
     p.add_argument("--preview-port", type=int, help="enable the HTTP side channel (MJPEG/audio/events) on this port")
+    p.add_argument("--preview-token", help="token that lets other devices use the dashboard controls")
     p.add_argument("--language", help="TTS / STT language name, e.g. English (default)")
     p.add_argument("--stt", dest="stt_backend", choices=["faster-whisper", "openai", "none"], help="speech-to-text backend")
     p.add_argument("--stt-model", help="faster-whisper size (tiny/base/small/medium) or API model name")

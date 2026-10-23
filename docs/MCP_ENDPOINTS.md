@@ -290,3 +290,13 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 * Side channel for humans and non-MCP consumers (optional, `--preview-port`):
   `http://host:port/camera/top.mjpg` (live MJPEG), `/camera/top.jpg`,
   `/audio.wav` (live 16 kHz PCM), `/events` (server-sent events), `/status`.
+* Dashboard at `/` on the same port: `GET /api/state` (status, reflexes, perception,
+  abilities, cameras, volume, gestures, transcript; `control` says whether this client may act)
+  and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,
+  `reflex {name, enabled}`, `listening {enabled?, barge_in?}`, `perception {name, enabled}`,
+  `liveliness {preset}`, `ability {name, enabled}`, `autonomous_life {state}`,
+  `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
+  `stop_animation`, `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,
+  `say {text}`, `stop_speaking`, `volume {level}`, `mood {mood}`, `camera {camera, enabled}`.
+  Allowed from loopback; other hosts need `--preview-token` sent as `X-Pepper-Token`
+  (except `stop`, which any client may send).

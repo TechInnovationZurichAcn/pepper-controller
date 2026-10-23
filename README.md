@@ -237,7 +237,14 @@ and lowers the base safety distances to 0.15 m / 0.05 m.
 
 ### 10. Watch and test it
 
-1. Open <http://localhost:8765/>: live top camera, status and event log.
+1. Open <http://localhost:8765/>: the control dashboard. Header: connection, battery,
+   posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
+   Below it: live camera (top/bottom/depth), head and base nudge pads, a say box and volume,
+   switches for every reflex (wave/greet, high five, attention, touch, battery), hearing,
+   liveliness and autonomous abilities, tracking/follow and perception extractors, one button
+   per gesture, mood lights, the conversation transcript, sensors and a filterable event log.
+   Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
+   `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
 2. Stand ~1 m in front and say a sentence. A `speech.final` event with your words should
    appear about a second after you stop talking (the first one is slower while whisper
    loads).
@@ -343,7 +350,8 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | `--fake` | `PEPPER_FAKE` | off | in-memory robot, no hardware |
 | `--transport` | `PEPPER_MCP_TRANSPORT` | `stdio` | `stdio`, `streamable-http`, `sse` |
 | `--host` / `--http-port` | `PEPPER_MCP_HOST` / `PEPPER_MCP_PORT` | 127.0.0.1 / 8808 | HTTP transport bind |
-| `--preview-port` | `PEPPER_PREVIEW_PORT` | 0 (off) | live dashboard, MJPEG, WAV, SSE |
+| `--preview-port` | `PEPPER_PREVIEW_PORT` | 0 (off) | control dashboard, MJPEG, WAV, SSE |
+| `--preview-token` | `PEPPER_PREVIEW_TOKEN` | empty | lets other devices use the dashboard controls (`/?token=…`); empty = laptop only |
 | `--language` | `PEPPER_LANGUAGE` | `English` | TTS language |
 | `--stt` | `PEPPER_STT` | `faster-whisper` | `faster-whisper`, `openai`, `none` |
 | `--stt-model` / `--stt-device` | `PEPPER_STT_MODEL` / `PEPPER_STT_DEVICE` | `small` / `auto` | whisper size, `cpu`/`cuda` |
@@ -386,6 +394,7 @@ src/pepper_mcp/
   vision/       optional MediaPipe hand-raise detector
   assets/       files served to the tablet (GIF, audio)
   preview.py    MJPEG / live audio / SSE side channel; verify.py; agent.py
+  dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
 docs/           MCP_ENDPOINTS.md, ARCHITECTURE.md, ROBOT_VERIFICATION.md
 tests/          pytest suite against the fake robot
 ```

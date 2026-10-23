@@ -50,6 +50,9 @@ class Settings:
     #: optional HTTP side channel (MJPEG, live audio, SSE events); 0 disables it
     preview_port: int = field(default_factory=lambda: _env_int("PREVIEW_PORT", 0))
     preview_host: str = field(default_factory=lambda: _env("PREVIEW_HOST", "0.0.0.0") or "0.0.0.0")
+    #: dashboard controls are always allowed from this machine; other devices (phone, tablet) must
+    #: send this token (open ``/?token=...``). Empty = controls are local-only, viewing stays open.
+    preview_token: str = field(default_factory=lambda: _env("PREVIEW_TOKEN", "") or "")
 
     # --- robot behaviour on startup --------------------------------------
     #: "disable" puts autonomous life off so our motions are not fought; "keep" leaves it
@@ -130,5 +133,7 @@ class Settings:
         data = {f.name: getattr(self, f.name) for f in fields(self)}
         if data.get("stt_api_key"):
             data["stt_api_key"] = "***"
+        if data.get("preview_token"):
+            data["preview_token"] = "***"
         data["ssh_password"] = "***"
         return data

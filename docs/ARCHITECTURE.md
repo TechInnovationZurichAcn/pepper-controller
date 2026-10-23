@@ -69,7 +69,8 @@ src/pepper_mcp/
     hand_raise.py   optional laptop-side pose detector (MediaPipe) → gesture.hand_raised
   reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery)
   tools/            MCP tool modules, one per domain, auto-registered
-  preview.py        optional HTTP side channel: MJPEG, live WAV, SSE events
+  preview.py        optional HTTP side channel: MJPEG, live WAV, SSE events, dashboard API
+  dashboard.py      dashboard state snapshot + whitelisted actions (dashboard.html = page)
   verify.py         `pepper-mcp-verify`: checklist run against the real robot
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
   agent.py          `pepper-mcp-agent`: reference Claude agent loop (streaming TTS)
@@ -149,6 +150,11 @@ only cross-thread fan-out point and is thread-safe.
 * `move_to` / `turn` report the distance actually travelled; when NAOqi aborts a base move
   (`ALMotion/MoveFailed`, usually an obstacle in the safety distance) the task ends with
   `ok=false` and a `motion.blocked` event is published.
+* The preview dashboard's actions are a fixed whitelist with the same limits as the tools
+  (moves clamped to 5 s, refused while follow/navigation own the base). Only loopback clients
+  may use them unless `--preview-token` is set; JSON-only bodies, an `Origin` check and an
+  IP-or-localhost `Host` check keep other web pages (including DNS rebinding) from posting to
+  it. `stop` is accepted from any device so every viewer has an emergency stop.
 * Shutdown restores autonomous life (if we disabled it), security distances, stops the
   base, unsubscribes camera and audio.
 
