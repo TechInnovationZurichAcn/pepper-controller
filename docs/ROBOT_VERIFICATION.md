@@ -13,13 +13,16 @@ uv venv --python 3.12 .venv && source .venv/bin/activate
 uv pip install -e ".[robot,speech,dev]"
 ```
 
+The robot must be powered on, reachable on port 9559 and allowed to connect back to the
+laptop (firewall rule). README steps 1–5 cover getting there and finding `<PEPPER_IP>`.
+
 ## 1. Automated checklist
 
 ```bash
-pepper-mcp-verify --ip <PEPPER_IP>
+pepper-mcp-verify --ip <PEPPER_IP>     # --port, --no-move (skip the drive), --quiet (skip speech)
 ```
 
-It prints one line per check:
+It prints one line per check, then `N/M checks passed` (exit code 1 if any failed):
 
 | Check | What it proves | Fallback if it fails |
 |---|---|---|
@@ -34,12 +37,13 @@ It prints one line per check:
 | animations | `ALBehaviorManager.getInstalledBehaviors()` contains `animations/Stand/...` | curated list in `animation.py` |
 | tablet | `showWebview` with a data URL | `tablet_show_url` to the preview server |
 | leds | `fadeRGB` on `FaceLeds` | – |
-| move | `moveToward(0.1,0,0)` for 300 ms then stop | check `wakeUp`, security distances |
+| people | people perception extractors start; count of visible people | perception tools return empty lists |
+| move | wake up, `move(0.15, 0, 0)` for 300 ms, then stop | charging hatch closed? `wakeUp`, security distances |
 
 ## 2. Manual interaction test
 
 ```bash
-pepper-mcp --ip <PEPPER_IP> --preview-port 8765
+pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
 ```
 
 1. Open `http://localhost:8765/` – you should see the live camera and an event log.
@@ -48,8 +52,9 @@ pepper-mcp --ip <PEPPER_IP> --preview-port 8765
 3. Raise a hand and hold it up facing the robot: `person.waving` fires, the
    `high_five` reflex raises Pepper's right arm, touching the back of its hand ends the
    gesture with a celebration (`reflex.completed`).
-4. Connect an MCP client (Claude Desktop config in the README) and ask it to run the
-   `pepper_live_agent` prompt, or run `pepper-mcp-agent --ip <PEPPER_IP>`.
+4. Stop the server, connect an MCP client (README step 11 for Claude Code, step 12 for
+   Claude Desktop) and run the `pepper_live_agent` prompt, or run
+   `pepper-mcp-agent --ip <PEPPER_IP>`.
 
 ## 3. Known firmware quirks handled in code
 
@@ -60,3 +65,6 @@ pepper-mcp --ip <PEPPER_IP> --preview-port 8765
 * `ALTracker.registerTarget` resets the mode → Move mode re-applied after registering.
 * `showWebview` can block for seconds → called from a worker thread.
 * 16 kHz audio is single-channel only (front mic); 4-channel needs 48 kHz.
+* NAOqi's default security distances (0.4 m / 0.1 m) abort most indoor base moves with
+  `ALMotion/MoveFailed` → the server lowers them to 0.15 / 0.05 at start and reports aborted
+  moves as `motion.blocked`.

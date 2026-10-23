@@ -9,7 +9,7 @@ feels like talking to a person. Two latency classes are designed for separately:
 | Class | Budget | Path |
 |---|---|---|
 | **Reflex** (high five, look at speaker, greet, LED mood) | < 300 ms | robot event → laptop reflex → NAOqi call. No LLM in the loop. |
-| **Conversation** (hear → think → speak) | first words < 1.5 s | mic → VAD end-of-utterance (300 ms) → STT (local `small` model ≈ 400-800 ms, or cloud) → `speech.final` event unblocks `wait_for_event`/`listen` → LLM streams text → `say` per sentence (TTS start ≈ 300 ms) |
+| **Conversation** (hear → think → speak) | first words < 1.5 s | mic → VAD end-of-utterance (450 ms) → STT (local `small` model ≈ 400-800 ms, or cloud) → `speech.final` event unblocks `wait_for_event`/`listen` → LLM streams text → `say` per sentence (TTS start ≈ 300 ms) |
 
 Everything else (snapshots, state, long actions) is non-blocking: a tool call never
 waits on the robot unless the LLM asks it to (`wait=True`).
@@ -22,7 +22,7 @@ waits on the robot unless the LLM asks it to (`wait=True`).
  LLM client ────┤ MCP (stdio / streamable-http)                                     │
  (Claude, …)    │   server.py ── tools/*  resources  prompts                        │
                 │       │                                                           │
-                │   Runtime (robot/runtime.py) ──── EventBus (robot/events.py)      │
+                │   Runtime (runtime.py) ──── EventBus (robot/events.py)            │
                 │    │  │  │  │  │  │  │  │             ▲        ▲                   │
                 │    │  │  │  │  │  │  │  └ Reflexes ───┘        │ speech.final       │
                 │    │  │  │  │  │  │  └── Listener (speech/) ───┘  VAD → STT         │
@@ -100,9 +100,9 @@ the server.
    + `subscribe(name)` makes NAOqi call our `processRemote(channels, samples, timestamp,
    buffer)` every ~170 ms with 16-bit PCM from the front microphone. The buffer arrives
    as `bytes` or (with libqi-python 3) as a latin-1 `str`; `audio_in.py` normalises both.
-5. **Speech segmentation on the laptop.** 20 ms frames → VAD → utterance when 300 ms of
-   trailing silence (configurable). While the robot speaks (`tts.started`…`tts.finished`
-   + 300 ms tail) the gate drops frames so Pepper never transcribes itself. Optional
+5. **Speech segmentation on the laptop.** 20 ms frames → VAD → utterance when 450 ms of
+   trailing silence (`PEPPER_VAD_END_SILENCE_MS`). While the robot speaks (`tts.started`…`tts.finished`
+   + 350 ms tail, `PEPPER_ECHO_TAIL_MS`) the gate drops frames so Pepper never transcribes itself. Optional
    barge-in stops TTS when a person starts talking.
 6. **STT runs in a worker thread, results are events.** `speech.final` carries the text
    and the measured STT latency. `listen` is sugar for `wait_for_event(["speech.final"])`.
@@ -142,7 +142,13 @@ only cross-thread fan-out point and is thread-safe.
   cancels animations, tracking and navigation.
 * Collision protection is only disabled for the duration of an emote that needs it and
   always restored in `finally`.
-* `set_safety` is explicit and reports the applied values; defaults match NAOqi.
+* Base security distances are lowered to 0.15 m front / 0.05 m side at start
+  (`--safety-front/--safety-side`; NAOqi's 0.4/0.1 blocks most indoor moves) and restored to
+  NAOqi's defaults on a clean shutdown. `set_safety` changes them at runtime and reports the
+  applied values.
+* `move_to` / `turn` report the distance actually travelled; when NAOqi aborts a base move
+  (`ALMotion/MoveFailed`, usually an obstacle in the safety distance) the task ends with
+  `ok=false` and a `motion.blocked` event is published.
 * Shutdown restores autonomous life (if we disabled it), security distances, stops the
   base, unsubscribes camera and audio.
 
@@ -160,7 +166,8 @@ only cross-thread fan-out point and is thread-safe.
 
 Offline (this repository, no robot): `pytest` runs the server against `robot/fake.py`,
 covering tool registration, event bus wake-ups, listener segmentation with synthetic
-audio, gesture limits, task lifecycle and the in-process MCP client.
+audio, gesture limits, task lifecycle, the attention reflex, motion failure reporting and
+the in-process MCP client.
 
 On the robot: `pepper-mcp-verify --ip <PEPPER_IP>` walks a checklist (connect,
 services, TTS, animated speech, camera frame, microphone callback rate, ALMemory

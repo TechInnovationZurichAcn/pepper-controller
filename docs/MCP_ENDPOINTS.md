@@ -113,8 +113,8 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 | Tool | Arguments | Returns |
 |---|---|---|
 | `move` | `vx, vy, vtheta ∈ [-1,1]`, `duration_s ≤ 5` | ok (velocity, auto-stops when the duration ends – safety watchdog) |
-| `move_to` | `x_m, y_m, theta_deg`, `wait=False` | task id (odometry-based `moveTo`) |
-| `turn` | `degrees`, `wait=False` | task id |
+| `move_to` | `x_m, y_m, theta_deg`, `wait=False` | task id (odometry-based `moveTo`); result reports the distance actually moved, `ok=false` + reason if NAOqi stopped it |
+| `turn` | `degrees` (left positive), `wait=False` | task id; result reports the angle actually turned |
 | `stop_motion` | – | ok (stops base, animations, tracker, navigation) |
 | `go_to_posture` | `name: StandInit\|Stand\|StandZero\|Crouch\|Sit?`, `speed` | ok |
 | `look` | `yaw_deg`, `pitch_deg`, `speed=0.3` | ok |
@@ -127,7 +127,7 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 | `arm_pose` | `side: left\|right\|both`, `pose: down\|up\|forward\|out\|hug\|wave_ready` | ok |
 | `set_hands` | `left_open?`, `right_open?` | ok |
 | `get_pose` | – | odometry x, y, theta |
-| `set_safety` | `orthogonal_m?`, `tangential_m?`, `arm_collision_protection?`, `move_collision_protection?` | applied values |
+| `set_safety` | `orthogonal_m?`, `tangential_m?`, `arm_collision_protection?`, `move_collision_protection?` | applied values (server default 0.15 / 0.05 m, NAOqi default 0.4 / 0.1 m) |
 | `set_body_lean` | `hip_pitch_deg`, `hip_roll_deg`, `knee_pitch_deg`, `speed` | ok (expressive lean / crouch) |
 
 ### 2.5 Animations & gestures
@@ -273,10 +273,11 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 | `person.engaged` | `{person_id, zone}` |
 | `gesture.hand_raised` | `{side, confidence}` (laptop vision, optional) |
 | `touch.start` / `touch.end` | `{sensor}` |
-| `sound.located` | `{azimuth_deg, elevation_deg, energy, confidence}` |
+| `sound.located` | `{azimuth_deg (robot frame, left positive), head_azimuth_deg, elevation_deg, energy, confidence}` |
 | `reflex.triggered` / `reflex.completed` | `{reflex, result}` e.g. high five `{touched: true}` |
 | `task.finished` | `{task_id, kind, ok, error?}` |
 | `nav.status` | `{status, busy}` |
+| `motion.blocked` | `{reason}` – NAOqi stopped a base move, usually an obstacle inside the safety distance |
 | `robot.fell` / `robot.pushed` / `battery.low` / `hot_joint` | sensor payloads |
 | `tablet.touched` | `{x, y}` |
 | `connection.lost` / `connection.restored` | – |
@@ -284,7 +285,8 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 ## 6. Transports
 
 * `stdio` (default) – for Claude Desktop / Claude Code / any local MCP client.
-* `streamable-http` – `pepper-mcp --transport streamable-http --host 0.0.0.0 --port 8808`.
+* `streamable-http` – `pepper-mcp --transport streamable-http --host 0.0.0.0 --http-port 8808`
+  (`--port` is the robot's NAOqi port, not the HTTP port).
 * Side channel for humans and non-MCP consumers (optional, `--preview-port`):
   `http://host:port/camera/top.mjpg` (live MJPEG), `/camera/top.jpg`,
   `/audio.wav` (live 16 kHz PCM), `/events` (server-sent events), `/status`.
