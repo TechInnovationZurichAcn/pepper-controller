@@ -319,6 +319,29 @@ Just talk to Pepper; `Ctrl-C` to stop. It takes every `pepper-mcp` flag plus `--
 (default `claude-opus-5-5`), `--effort low|medium|high` (default `low`), `--persona`,
 `--idle-timeout` and `--no-fallbacks` (turns off server-side refusal fallbacks).
 
+**Gemini Live on Pepper's own mic, camera and speakers** – a speech-to-speech model hears
+Pepper's front microphone, watches its head camera (1 fps), answers through Pepper's
+loudspeakers and drives the body through the same MCP tools (91 of them; speech, hearing and
+blocking tools such as `say` or `wait_for_event` are left out because Gemini is the voice and
+every function call pauses the model). Robot events (touch, people appearing, `motion.blocked`,
+failed tasks, high-five results) are passed to it as short notes, so it reacts like the Claude
+loop does. Nothing on the laptop is used except the network.
+
+```bash
+uv pip install -e ".[robot,gemini]"
+echo 'GEMINI_LIVE_KEY=<your key>' > .env && chmod 600 .env    # .env is git-ignored
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
+```
+
+It owns the robot like `pepper-mcp-agent` (stop any other `pepper-mcp`, e.g. `/mcp` in Claude
+Code, first) and prints `[heard]`, `[said]` and `[tool]` lines. Extra flags on top of every
+`pepper-mcp` flag: `--model` (default `gemini-3.8-live`), `--voice` (`Kore`, `Puck`,
+`Charon`, …), `--persona`, `--no-video`, `--no-transcripts`. The server's own speech-to-text
+is off unless you pass `--stt`. Pepper's mic sits next to its speakers and has no echo
+cancellation, so it is muted while Pepper makes any sound (Gemini's voice, NAOqi speech from
+reflexes, gestures with sounds): talk after Pepper finishes; interrupting mid-sentence is not
+possible. The free API tier has no Google Search quota, so search is not enabled.
+
 **Any MCP client over HTTP:**
 
 ```bash
@@ -394,6 +417,7 @@ src/pepper_mcp/
   vision/       optional MediaPipe hand-raise detector
   assets/       files served to the tablet (GIF, audio)
   preview.py    MJPEG / live audio / SSE side channel; verify.py; agent.py
+  gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
   dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
 docs/           MCP_ENDPOINTS.md, ARCHITECTURE.md, ROBOT_VERIFICATION.md
 tests/          pytest suite against the fake robot
@@ -425,6 +449,7 @@ ruff check src tests
 | Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` (e.g. 600; `-e` on `claude mcp add`) |
 | `stt_error: libcublas.so.12 … not found` | GPU libs missing: step 6, or `--stt-device cpu` |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
-| Pepper never answers | expected without an LLM: connect Claude Code (step 11) or run `pepper-mcp-agent` |
+| Pepper never answers | expected without an LLM: connect Claude Code (step 11) or run `pepper-mcp-agent` / `pepper-mcp-gemini` |
+| `pepper-mcp-gemini`: Pepper does not react to speech | stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `GEMINI_LIVE_KEY` set in `.env`? `1011 … exceeded quota` at connect = the key's free-tier limit |
 | `/mcp` shows pepper failed | run the exact command from step 11 in a terminal and read stderr; another process may own the robot |
 | `qi` wheel not found | Python 3.13+: recreate the venv with `--python 3.12` |

@@ -185,12 +185,23 @@ class FakeAudioDevice(FakeService):
         self._stop = threading.Event()
         self.volume = 55
         self.prefs: tuple[Any, ...] | None = None
+        self.output = bytearray()
 
     def setOutputVolume(self, level: int) -> None:
         self.volume = level
 
     def getOutputVolume(self) -> int:
         return self.volume
+
+    def getParameter(self, name: str) -> Any:
+        return {"outputSampleRate": 48000}.get(name)
+
+    def sendRemoteBufferToOutput(self, nb_frames: int, buffer: bytes) -> bool:
+        """Remote speaker output: keep the interleaved stereo PCM so tests can inspect it."""
+        with self._lock:
+            self.calls.append(("sendRemoteBufferToOutput", (nb_frames, len(buffer))))
+            self.output.extend(buffer)
+        return True
 
     def setClientPreferences(self, *args: Any) -> None:
         self.prefs = args

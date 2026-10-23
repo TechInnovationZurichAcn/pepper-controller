@@ -23,6 +23,8 @@ robot = ["qi>=3.1.5"]
 speech = ["faster-whisper>=1.0", "webrtcvad-wheels>=2.0.14"]
 # Reference agent loop that drives the robot with Claude.
 agent = ["anthropic>=1.0"]
+# Real-time voice + video agent on Pepper's own mic, camera and speakers with Gemini Live.
+gemini = ["google-genai>=2.33"]
 # Laptop-side pose / hand detection on camera frames (experimental).
 vision = ["mediapipe>=0.10", "opencv-python-headless>=4.9"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "anyio>=4"]
@@ -32,6 +34,7 @@ all = ["pepper-mcp[robot,speech,agent]"]
 pepper-mcp = "pepper_mcp.cli:main"
 pepper-mcp-verify = "pepper_mcp.verify:main"
 pepper-mcp-agent = "pepper_mcp.agent:main"
+pepper-mcp-gemini = "pepper_mcp.gemini_live:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pepper_mcp"]

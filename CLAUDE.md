@@ -37,7 +37,8 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>`.
   robot module starts calling a new NAOqi method.
 - `speech/` (VAD → STT → `speech.final`), `reflexes/` (subclass `reflexes.base.Reflex`),
   `vision/` (optional MediaPipe), `preview.py` (HTTP side channel), `agent.py` (reference
-  Claude loop, model `claude-opus-5-5`).
+  Claude loop, model `claude-opus-5-5`), `gemini_live.py` (`pepper-mcp-gemini`, Gemini Live
+  on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`).
 
 ## Rules that are easy to break
 

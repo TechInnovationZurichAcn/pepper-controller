@@ -1,4 +1,5 @@
-"""Speaker output: ALAudioPlayer / ALAudioDevice volume + uploading sound files."""
+"""Speaker output: ALAudioPlayer / ALAudioDevice volume, uploading sound files and streaming
+raw PCM (e.g. a cloud voice) to the loudspeakers."""
 
 from __future__ import annotations
 
@@ -7,7 +8,10 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 from typing import Any
+
+import numpy as np
 
 from pepper_mcp.robot.connection import RobotConnection, RobotError
 
@@ -67,6 +71,10 @@ class AudioOut:
             self.player.stopAll()
         except Exception as exc:
             log.debug("stopAll audio: %s", exc)
+
+    def speaker_stream(self, input_rate: int) -> SpeakerStream:
+        """Live PCM output at ``input_rate`` (16-bit mono) through the loudspeakers."""
+        return SpeakerStream(self.device, input_rate)
 
     # ------------------------------------------------------------- upload
     def robot_asset_path(self, filename: str) -> str | None:
@@ -135,3 +143,66 @@ class AudioOut:
             log.info("web asset deploy failed: %s", exc)
             return None
         return f"http://{self.conn.ip}/apps/{app}/{filename}"
+
+
+class SpeakerStream:
+    """Plays a live stream of 16-bit mono PCM on the loudspeakers (ALAudioDevice remote output).
+
+    ``sendRemoteBufferToOutput`` wants interleaved stereo at the output rate (48 kHz) and returns
+    at once instead of at playback speed, so ``write`` paces itself and stays at most ``LEAD_S``
+    ahead of what the robot plays: that bounds the audio still queued on the robot when the stream
+    is cut (barge-in, stop), and keeps ``remaining()`` an honest "still audible" estimate.
+    """
+
+    LEAD_S = 0.15
+    MAX_FRAMES = 4800  # 100 ms per call at 48 kHz, well under NAOqi's 16384-frame limit
+
+    def __init__(self, device: Any, input_rate: int):
+        self.device = device
+        self.input_rate = input_rate
+        self.rate = int(device.getParameter("outputSampleRate") or 48000)
+        if self.rate % input_rate:
+            raise RobotError(f"output rate {self.rate} Hz is not a multiple of {input_rate} Hz")
+        self._last = 0.0  # previous input sample, keeps interpolation continuous across chunks
+        self._play_until = 0.0
+        self._generation = 0  # bumped by cancel(); a write in progress stops at its next block
+        self._lock = threading.Lock()
+
+    def cancel(self) -> None:
+        """Stop sending the chunk being written (barge-in, reconnect). What the robot already
+        has (at most ``LEAD_S`` plus one block) still plays out."""
+        self._generation += 1
+
+    def remaining(self) -> float:
+        """Seconds of already-sent audio the robot is still playing."""
+        return max(0.0, self._play_until - time.monotonic())
+
+    def convert(self, pcm: bytes) -> np.ndarray:
+        """Mono ``input_rate`` PCM → interleaved stereo int16 at the output rate (linear upsampling)."""
+        x = np.frombuffer(pcm[:len(pcm) - len(pcm) % 2], "<i2").astype(np.float32)
+        if not len(x):
+            return np.zeros(0, np.int16)
+        factor = self.rate // self.input_rate
+        prev = np.concatenate(([self._last], x[:-1])).astype(np.float32)
+        self._last = float(x[-1])
+        steps = np.arange(1, factor + 1, dtype=np.float32) / factor
+        up = (prev[:, None] + (x - prev)[:, None] * steps).ravel()
+        return np.repeat(np.round(up).astype(np.int16), 2)
+
+    def write(self, pcm: bytes) -> None:
+        """Queue ``pcm`` on the robot; blocks just enough to stay ``LEAD_S`` ahead of playback."""
+        generation = self._generation
+        with self._lock:
+            stereo = self.convert(pcm)
+            for i in range(0, len(stereo) // 2, self.MAX_FRAMES):
+                if self._generation != generation:
+                    return
+                block = stereo[2 * i:2 * (i + self.MAX_FRAMES)]
+                ahead = self.remaining()
+                if ahead > self.LEAD_S:
+                    time.sleep(ahead - self.LEAD_S)
+                    if self._generation != generation:
+                        return
+                frames = len(block) // 2
+                self.device.sendRemoteBufferToOutput(frames, block.tobytes())
+                self._play_until = max(self._play_until, time.monotonic()) + frames / self.rate

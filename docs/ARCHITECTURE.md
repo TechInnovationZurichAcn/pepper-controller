@@ -74,7 +74,32 @@ src/pepper_mcp/
   verify.py         `pepper-mcp-verify`: checklist run against the real robot
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
   agent.py          `pepper-mcp-agent`: reference Claude agent loop (streaming TTS)
+  gemini_live.py    `pepper-mcp-gemini`: Gemini Live speech-to-speech agent (see 2.2)
 ```
+
+### 2.2 Gemini Live agent
+
+`pepper-mcp-gemini` runs the server in-process like `agent.py` and calls the robot only through
+the MCP client, but replaces the text turn loop with one streaming Gemini Live session:
+
+- **In:** `MicrophoneStream` consumer (16 kHz front mic, the exact Live input format) and
+  `CameraStreams.snapshot("top")` once per second (the API's maximum). `camera_snapshot` calls
+  push a frame into the video input instead of returning an image.
+- **Out:** the 24 kHz voice goes to `AudioOut.speaker_stream` → `SpeakerStream`, which upsamples
+  to the 48 kHz stereo `ALAudioDevice.sendRemoteBufferToOutput` wants. That call returns
+  immediately, so the stream paces itself 150 ms ahead of playback; a barge-in or reconnect
+  therefore leaves at most ~0.25 s queued on the robot.
+- **Tools:** every MCP tool except speech/hearing ones (Gemini is the voice and ears) and the
+  ones that wait (`wait_for_event`, `wait_task`): Live function calls block the model.
+  Schemas go through unchanged (`parameters_json_schema`), so the server's limits apply.
+- **Events:** a bus subscriber turns touch, people, `motion.blocked`, failed tasks and reflex
+  results into `[robot event]` text notes; they are held back while Pepper is talking.
+- **Echo:** no AEC on the robot, so `EchoGate` drops mic audio while Gemini's voice plays, NAOqi
+  speaks (`tts.*`), a reflex runs or a sound-making task (gesture, animation, audio) is active,
+  plus a 0.4 s reverb tail. Every source expires on its own (≤ 30 s) so a missed event cannot
+  leave Pepper deaf.
+- **Sessions:** context-window compression keeps audio+video sessions alive past 2 min;
+  `go_away` reconnects with the last session-resumption handle.
 
 Every `tools/<domain>.py` exports `register(mcp, rt)`. `tools/__init__.py` imports all
 modules in the package and calls `register`, so adding a domain = adding a file.
