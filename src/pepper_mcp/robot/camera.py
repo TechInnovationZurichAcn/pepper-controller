@@ -92,10 +92,17 @@ class CameraStream:
     def _subscribe(self) -> None:
         name = f"pepper_mcp_{self.camera}"
         video = self.video
+        # subscribeCamera hands out "<name>_<n>" handles and refuses new ones once a name has
+        # 8, so handles leaked by killed runs must be found and released by their suffixed name.
         try:
-            video.unsubscribe(name)  # stale handle from a crashed run
+            stale = [h for h in video.getSubscribers() if h == name or h.startswith(f"{name}_")]
         except Exception:
-            pass
+            stale = [name]
+        for handle in stale:
+            try:
+                video.unsubscribe(handle)
+            except Exception as exc:
+                log.debug("could not release camera handle %s: %s", handle, exc)
         self._handle = video.subscribeCamera(name, self.cam_id, self.resolution, self.colorspace, self.fps)
         if not self._handle:
             raise RobotError(f"subscribeCamera failed for {self.camera}")

@@ -243,6 +243,20 @@ class MemoryWatcher:
         except Exception:
             return default
 
+    def set(self, key: str, value: Any) -> bool:
+        try:
+            self.memory.insertData(key, value)
+        except Exception as exc:
+            log.debug("ALMemory.insertData(%s) failed: %s", key, exc)
+            return False
+        # Record our own write so the poller does not miss a change back to the old value
+        # that happens before its next read.
+        with self._lock:
+            spec = self._polled.get(key)
+            if spec is not None:
+                spec["last"] = value
+        return True
+
     def watch(self, key: str, handler: ValueHandler, poll_s: float | None = None,
               edge_only: bool = True, force_poll: bool = False) -> None:
         """Call ``handler(key, value)`` whenever ``key`` changes.

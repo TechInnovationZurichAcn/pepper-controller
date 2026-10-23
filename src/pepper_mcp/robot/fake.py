@@ -129,9 +129,16 @@ class FakeVideo(FakeService):
         self._n = 0
 
     def subscribeCamera(self, name: str, cam: int, res: int, cs: int, fps: int) -> str:
-        handle = f"{name}_0"
-        self._handles[handle] = (cam, res, cs)
-        return handle
+        # like NAOqi: "<name>_<n>" with the first free n, and at most 8 handles per name
+        for n in range(8):
+            handle = f"{name}_{n}"
+            if handle not in self._handles:
+                self._handles[handle] = (cam, res, cs)
+                return handle
+        return ""
+
+    def getSubscribers(self) -> list[str]:
+        return list(self._handles)
 
     def unsubscribe(self, handle: str) -> bool:
         self._handles.pop(handle, None)

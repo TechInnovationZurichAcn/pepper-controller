@@ -104,3 +104,50 @@ def test_encode_jpeg_rgb_and_depth() -> None:
     assert encode_jpeg(depth, 4, 80)[:2] == b"\xff\xd8"
     with pytest.raises(RobotError):
         encode_jpeg(Frame("top", 8, 4, b"123", COLOR_RGB, time.time(), 1), 8, 80)
+
+
+def test_waving_key_reports_repeat_waves_and_ignores_stale_value() -> None:
+    from pepper_mcp.robot.perception import WAVING_KEY
+    from pepper_mcp.runtime import Runtime
+    from tests.conftest import make_settings
+
+    robot = FakeRobot()
+    # NAOqi 2.5.10 leaves the last waver's id in the key across sessions
+    robot.memory_set(WAVING_KEY, 7)
+    rt = Runtime(make_settings(reflexes_enabled=False), FakeConnection(robot))
+    rt.start()
+    try:
+        time.sleep(0.4)
+        assert rt.bus.recent(types=["person.waving"]) == []
+
+        def wave_and_count(expected: int) -> None:
+            robot.memory_set(WAVING_KEY, 7)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline and len(rt.bus.recent(types=["person.waving"])) < expected:
+                time.sleep(0.05)
+            assert len(rt.bus.recent(types=["person.waving"])) == expected
+
+        wave_and_count(1)
+        # the same person waving again writes the same id: it must still be reported
+        wave_and_count(2)
+        assert rt.bus.recent(types=["person.waving"])[-1].data["person_id"] == 7
+    finally:
+        rt.stop()
+
+
+def test_camera_releases_handles_leaked_by_killed_runs() -> None:
+    from pepper_mcp.robot.camera import CameraStream
+
+    robot = FakeRobot()
+    conn = FakeConnection(robot)
+    conn.connect()
+    video = conn.service("ALVideoDevice")
+    for _ in range(8):  # eight runs killed before they could unsubscribe
+        video.subscribeCamera("pepper_mcp_top", 0, 1, 11, 10)
+    stream = CameraStream(conn, "top")
+    stream.start()
+    try:
+        assert video.getSubscribers() == ["pepper_mcp_top_0"]
+    finally:
+        stream.stop()
+    assert video.getSubscribers() == []

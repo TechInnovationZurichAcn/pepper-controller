@@ -44,6 +44,8 @@ EXTRACTORS = {
 SONAR_FRONT = "Device/SubDeviceList/Platform/Front/Sonar/Sensor/Value"
 SONAR_BACK = "Device/SubDeviceList/Platform/Back/Sonar/Sensor/Value"
 BATTERY = "Device/SubDeviceList/Battery/Charge/Sensor/Value"
+WAVING_KEY = "WavingDetection/PersonWaving"
+WAVING_RESET = -1  # never a person id; 0 might be
 
 
 class Perception:
@@ -81,7 +83,10 @@ class Perception:
             self.memory.watch(BATTERY, self._on_battery, poll_s=5.0)
             self.memory.watch("HotJointDetected", self._on_hot_joint, poll_s=2.0)
             self.memory.watch("ALTabletService/onTouchDown", self._on_tablet_touch, poll_s=0.2)
-            self.memory.watch("WavingDetection/PersonWaving", self._on_waving_event, poll_s=0.15)
+            # The key keeps the last waver's id until overwritten: clear a stale value from an
+            # earlier session so it is not reported as a fresh wave.
+            self.memory.set(WAVING_KEY, WAVING_RESET)
+            self.memory.watch(WAVING_KEY, self._on_waving_event, poll_s=0.15)
         return dict(self.active)
 
     def stop(self) -> None:
@@ -158,14 +163,23 @@ class Perception:
                                      source="perception")
 
     def _on_waving_event(self, key: str, value: Any) -> None:
-        # Event payload (2.5): [timestamp, [[confidence, type, position, person_id], ...]] – be tolerant.
+        # NAOqi 2.5.10 writes the waving person's id (int) here; older docs describe
+        # [timestamp, [[confidence, type, position, person_id], ...]] – accept both.
+        if value is None or value == WAVING_RESET or (isinstance(value, (list, tuple)) and not value):
+            return  # our own reset or an empty payload
         pid = None
-        try:
-            clusters = value[1] if isinstance(value, (list, tuple)) and len(value) > 1 else []
-            if clusters and isinstance(clusters[0], (list, tuple)) and len(clusters[0]) >= 4:
-                pid = int(clusters[0][3])
-        except Exception:
-            pid = None
+        if isinstance(value, int):
+            pid = value
+        else:
+            try:
+                clusters = value[1] if isinstance(value, (list, tuple)) and len(value) > 1 else []
+                if clusters and isinstance(clusters[0], (list, tuple)) and len(clusters[0]) >= 4:
+                    pid = int(clusters[0][3])
+            except Exception:
+                pid = None
+        # The id stays in the key, so the same person waving again would not change it and
+        # the poller would never see the second wave: reset it after every report.
+        self.memory.set(key, WAVING_RESET)
         if pid is not None and self._waving_state.get(pid):
             return  # already reported via the IsWaving key
         self.bus.publish("person.waving", {"person_id": pid, "side": "unknown"}, source="perception")
