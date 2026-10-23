@@ -35,6 +35,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--liveliness", choices=["off", "calm", "lively"], help="autonomous movement preset at start")
     p.add_argument("--keep-autonomous-life", dest="autonomous_life", action="store_const", const="keep",
                    help="do not disable NAOqi autonomous life at start")
+    p.add_argument("--safety-front", dest="safety_front_m", type=float,
+                   help="front safety distance in m for base moves (default 0.15; NAOqi default 0.4)")
+    p.add_argument("--safety-side", dest="safety_side_m", type=float,
+                   help="side safety distance in m for base moves (default 0.05; NAOqi default 0.1)")
     p.add_argument("--camera-fps", type=int)
     p.add_argument("--camera-res", dest="camera_resolution", choices=["qqvga", "qvga", "vga"])
     p.add_argument("--audio-rate", type=int, choices=[16000, 48000])

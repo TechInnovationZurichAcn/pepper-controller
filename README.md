@@ -50,7 +50,7 @@ pepper-mcp --fake --stt none                  # no robot, for client development
 Useful flags: `--stt faster-whisper|openai|none`, `--stt-model tiny|base|small|medium`,
 `--stt-language de`, `--language German`, `--liveliness off|calm|lively`, `--barge-in`,
 `--reflexes-off greet,touch_reaction`, `--no-camera`, `--no-audio`,
-`--keep-autonomous-life`. Everything is also an environment variable (`PEPPER_IP`,
+`--keep-autonomous-life`, `--safety-front 0.15 --safety-side 0.05` (base safety distances; NAOqi defaults 0.4/0.1 block most indoor moves). Everything is also an environment variable (`PEPPER_IP`,
 `PEPPER_STT`, …) – see `pepper-mcp --help` and `src/pepper_mcp/config.py`.
 
 ### Claude Desktop / Claude Code

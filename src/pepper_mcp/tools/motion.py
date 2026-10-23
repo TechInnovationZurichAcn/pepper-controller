@@ -24,6 +24,12 @@ DIRECTIONS = {"left": (45, 0), "right": (-45, 0), "slightly_left": (20, 0), "sli
 
 
 def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
+    def _check_base_free() -> None:
+        if rt.tracker and rt.tracker.following:
+            raise ValueError("follow_person is active and owns the base; disable it first")
+        if rt.navigator and rt.navigator.busy:
+            raise ValueError("navigation owns the base; stop_navigation first")
+
     @tool(mcp, MOVES_ROBOT)
     def move(vx: Annotated[float, Field(ge=-1, le=1, description="forward(+)/back(-) fraction of max speed")] = 0.0,
              vy: Annotated[float, Field(ge=-1, le=1, description="left(+)/right(-) strafe")] = 0.0,
@@ -31,11 +37,9 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
              duration_s: Annotated[float, Field(gt=0, le=5, description="auto-stop after this many seconds")] = 1.0
              ) -> dict[str, Any]:
         """Drive the wheeled base at a velocity for a short time (max 5 s, auto-stops). Max speed is
-        ~0.35 m/s. Use small values near people. For precise displacements use move_to."""
-        if rt.tracker and rt.tracker.following:
-            raise ValueError("follow_person is active and owns the base; disable it first")
-        if rt.navigator and rt.navigator.busy:
-            raise ValueError("navigation owns the base; stop_navigation first")
+        ~0.35 m/s. Use small values near people. For precise displacements use move_to. If NAOqi
+        blocks the move (obstacle in the safety distance) a motion.blocked event is published."""
+        _check_base_free()
         return rt.motion.move(vx, vy, vtheta, duration_s)
 
     @tool(mcp, MOVES_ROBOT)
@@ -43,15 +47,22 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                 y_m: Annotated[float, Field(ge=-3, le=3, description="metres left(+)/right(-)")] = 0.0,
                 theta_deg: Annotated[float, Field(ge=-360, le=360, description="final rotation, left positive")] = 0.0,
                 wait: bool = False) -> dict[str, Any]:
-        """Move a relative distance using odometry (ALMotion.moveTo). Background task unless wait."""
-        fut = rt.motion.move_to_async(x_m, y_m, rad(theta_deg))
-        return task_result(rt.tasks.from_future("move_to", f"moveTo({x_m}, {y_m}, {theta_deg}deg)", fut), wait, 60)
+        """Move a relative distance using odometry (ALMotion.moveTo). Background task unless wait.
+        The result (or task.finished) says how far the robot really moved; ok=false with the reason
+        when NAOqi stopped it early (usually an obstacle within the safety distance)."""
+        _check_base_free()
+        task = rt.tasks.run("move_to", f"moveTo({x_m}, {y_m}, {theta_deg}deg)",
+                            lambda: rt.motion.move_relative(x_m, y_m, rad(theta_deg)), cancel=rt.motion.stop_base)
+        return task_result(task, wait, 60)
 
     @tool(mcp, MOVES_ROBOT)
     def turn(degrees: Annotated[float, Field(ge=-360, le=360, description="left positive")], wait: bool = False) -> dict[str, Any]:
-        """Turn in place by an angle."""
-        fut = rt.motion.move_to_async(0.0, 0.0, rad(degrees))
-        return task_result(rt.tasks.from_future("turn", f"turn {degrees}deg", fut), wait, 30)
+        """Turn in place by an angle (left positive), e.g. 180 to turn around. Reports the angle
+        actually turned; ok=false with the reason if NAOqi stopped it early."""
+        _check_base_free()
+        task = rt.tasks.run("turn", f"turn {degrees}deg",
+                            lambda: rt.motion.move_relative(0.0, 0.0, rad(degrees)), cancel=rt.motion.stop_base)
+        return task_result(task, wait, 30)
 
     @tool(mcp, ACTION)
     def go_to_posture(name: Literal["StandInit", "Stand", "StandZero", "Crouch"] = "StandInit",
@@ -145,12 +156,14 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         return rt.motion.get_pose()
 
     @tool(mcp, ACTION)
-    def set_safety(orthogonal_m: Annotated[float | None, Field(ge=0, le=1, description="front safety bubble, default 0.4")] = None,
-                   tangential_m: Annotated[float | None, Field(ge=0, le=1, description="side safety bubble, default 0.1")] = None,
+    def set_safety(orthogonal_m: Annotated[float | None, Field(ge=0, le=1, description="front safety distance in m")] = None,
+                   tangential_m: Annotated[float | None, Field(ge=0, le=1, description="side safety distance in m")] = None,
                    arm_collision_protection: bool | None = None,
                    move_collision_protection: bool | None = None) -> dict[str, Any]:
-        """Adjust NAOqi safety: smaller security distances make the base brake later (teleop used
-        0.1/0.05); collision protection stops arms/base when something is detected in the way."""
+        """Adjust NAOqi safety. Base moves stop when anything is closer than the security distances
+        (server default 0.15 front / 0.05 side, NAOqi default 0.4 / 0.1): lower them if moves keep
+        getting blocked, raise them in crowded spaces. Collision protection stops arms/base when
+        something is detected in the way."""
         if orthogonal_m is not None or tangential_m is not None:
             rt.motion.set_security_distances(orthogonal_m, tangential_m)
         if arm_collision_protection is not None:

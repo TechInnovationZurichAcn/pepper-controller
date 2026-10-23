@@ -14,6 +14,7 @@ from typing import Any
 
 from pepper_mcp.robot.connection import RobotConnection
 from pepper_mcp.robot.events import EventBus, MemoryWatcher
+from pepper_mcp.robot.motion import MOVE_FAILED_KEY, describe_move_failure, is_interruption
 
 log = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class Perception:
             self.memory.watch("ALTabletService/onTouchDown", self._on_tablet_touch, poll_s=0.2)
             # The key keeps the last waver's id until overwritten: clear a stale value from an
             # earlier session so it is not reported as a fresh wave.
+            self.memory.watch(MOVE_FAILED_KEY, self._on_move_failed, poll_s=0.2)
             self.memory.set(WAVING_KEY, WAVING_RESET)
             self.memory.watch(WAVING_KEY, self._on_waving_event, poll_s=0.15)
         return dict(self.active)
@@ -161,6 +163,12 @@ class Perception:
                     self._gaze_state[pid] = looking
                     self.bus.publish("person.looking_at_robot", {"person_id": pid, "looking": looking},
                                      source="perception")
+
+    def _on_move_failed(self, key: str, value: Any) -> None:
+        if not value or is_interruption(value):
+            return  # cleared before a move, or stopped on purpose
+        self.bus.publish("motion.blocked", {"reason": describe_move_failure(value), "raw": value},
+                         source="perception")
 
     def _on_waving_event(self, key: str, value: Any) -> None:
         # NAOqi 2.5.10 writes the waving person's id (int) here; older docs describe
@@ -304,7 +312,17 @@ class Perception:
             az, el, conf, energy = (float(v) for v in value[1][:4])
         except Exception:
             return
-        info = {"azimuth_deg": round(math.degrees(az), 1), "elevation_deg": round(math.degrees(el), 1),
+        # The angles are relative to where the head pointed when the sound arrived; add the
+        # head's yaw in FRAME_ROBOT (last element of the second 6D pose) so the direction is
+        # comparable with person bearings and usable for robot-frame lookAt targets.
+        try:
+            head_yaw = float(value[3][5])
+        except Exception:
+            head_yaw = 0.0
+        robot_az = math.degrees(az + head_yaw)
+        robot_az = (robot_az + 180.0) % 360.0 - 180.0
+        info = {"azimuth_deg": round(robot_az, 1), "head_azimuth_deg": round(math.degrees(az), 1),
+                "elevation_deg": round(math.degrees(el), 1),
                 "confidence": round(conf, 2), "energy": round(energy, 2), "ts": time.time()}
         self._last_sound = info
         self.bus.publish("sound.located", info, source="perception")

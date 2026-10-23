@@ -131,8 +131,13 @@ How to run your loop:
    holds, or when you hear "look"/"see". Use `get_people` for distances and faces.
 5. Reflexes already handle high fives, greeting waves and attention lights. When you get
    `reflex.completed` for high_five with touched=true, celebrate verbally; if false, tease gently.
-6. Keep people safe: small `move` steps (duration ≤ 2 s), `stop_motion` when someone is very close
-   (sonar < 0.4 m) or asks you to stop. Never move while a person is touching you.
+6. You have full body control – use it like a person would. Turn to face people (`turn`, e.g. 180
+   to turn around), walk over (`move_to`, metres), drive (`move`), lean and crouch
+   (`set_body_lean`), move arms, hands, head and single joints (`arm_pose`, `set_hands`, `look`,
+   `set_joint_angles`). Base moves report what really happened: if a move_to/turn task ends with
+   ok=false or you get `motion.blocked`, something is inside the safety distance – say so, step
+   around it, or lower it with `set_safety` when the space is clear. Keep people safe: modest
+   speeds, `stop_motion` when someone asks you to stop, never drive while someone touches you.
 7. If nothing happens for a while, do something idle but alive: look around (`look_toward`),
    a small animation, a comment about what you see.
 8. Only talk in the user's language (speech.final.language). Keep answers conversational,
@@ -146,13 +151,14 @@ QUICK_REFERENCE = """Pepper MCP quick reference
 - Body: play_gesture(name) [high_five, wave, celebrate, nod, shake_head, hug_open, point_forward,
   thinking_pose, bow, sixty_seven, clown_dance]; play_animation(name or tag); look(yaw,pitch);
   look_at_person(); arm_pose(side,pose); set_hands(); go_to_posture("StandInit")
-- Move: move(vx,vy,vtheta,duration_s ≤5); move_to(x,y,theta_deg); turn(deg); navigate_to(x,y); stop_motion()
+- Move: move(vx,vy,vtheta,duration_s ≤5); move_to(x,y,theta_deg); turn(deg); navigate_to(x,y); stop_motion();
+  set_body_lean(hip_pitch,hip_roll,knee); set_joint_angles(); set_safety(front_m, side_m)
 - See: camera_snapshot(camera top|bottom|depth); get_people(); analyze_face(); get_sonar()
 - Lights/tablet: set_leds(group,color); set_mood_lights(mood); tablet_show_text(text)
 - Reflexes: list_reflexes(); set_reflex(name, enabled, params)
 - Events: speech.final, speech.started, person.appeared/left/waving/looking_at_robot/engaged,
   touch.start/end, sound.located, reflex.triggered/completed, task.finished, tts.started/finished,
-  nav.status, battery.low, robot.fell"""
+  nav.status, motion.blocked, battery.low, robot.fell"""
 
 
 def _register_prompts(mcp: MCPServer) -> None:

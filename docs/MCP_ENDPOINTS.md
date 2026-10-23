@@ -233,7 +233,7 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | `list_reflexes` | – | name, enabled, description, parameters, trigger count |
 | `set_reflex` | `name`, `enabled?`, `params?` | new state |
 
-Built-in reflexes: `attention` (eye colour + look toward sounds/speakers),
+Built-in reflexes: `attention` (eye colour + look toward the person talking; plain noises are ignored),
 `high_five` (raised hand → arm up, wait for touch, celebrate), `greet` (new person
 → look + wave), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
 

@@ -169,3 +169,19 @@ async def test_leds_tablet_tracking_navigation(client_ctx) -> None:  # type: ign
         assert spot_err.is_error  # not localized yet
         reflexes = {r["name"]: r for r in _json(await client.call_tool("list_reflexes", {}))["reflexes"]}
         assert reflexes["touch_reaction"]["enabled"] is True  # fresh runtime per test
+
+
+async def test_turn_reports_angle_and_safety_block(client_ctx) -> None:  # type: ignore[no-untyped-def]
+    async with client_ctx() as client:
+        robot: FakeRobot = client.robot
+        res = _json(await client.call_tool("turn", {"degrees": 180, "wait": True}))
+        assert res["ok"] is True and res["result"]["moved"]["theta_deg"] == 180.0
+        robot.block_moves = True
+        res = _json(await client.call_tool("move_to", {"x_m": 1.0, "wait": True}))
+        assert res["ok"] is False and "Safety" in res["error"]
+        deadline = asyncio.get_running_loop().time() + 3
+        blocked: list = []
+        while not blocked and asyncio.get_running_loop().time() < deadline:
+            blocked = _json(await client.call_tool("get_events", {"types": ["motion.blocked"]}))["events"]
+            await asyncio.sleep(0.1)
+        assert blocked and "Safety" in blocked[0]["data"]["reason"]

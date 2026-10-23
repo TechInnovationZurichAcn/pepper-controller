@@ -58,6 +58,12 @@ class Settings:
     liveliness: str = field(default_factory=lambda: _env("LIVELINESS", "calm") or "calm")
     wake_up: bool = field(default_factory=lambda: _env_bool("WAKE_UP", True))
     language: str = field(default_factory=lambda: _env("LANGUAGE", "English") or "English")
+    #: base safety bubble in metres. NAOqi's 0.4 m front bubble blocks almost every move indoors
+    #: (anyone or anything within 40 cm aborts it with ALMotion/MoveFailed "Safety"); the old
+    #: teleop drove fine with 0.1/0.05. Restored to NAOqi's defaults on a clean shutdown; a killed
+    #: server leaves the robot at these values until the next start or a reboot.
+    safety_front_m: float = field(default_factory=lambda: _env_float("SAFETY_FRONT_M", 0.15))
+    safety_side_m: float = field(default_factory=lambda: _env_float("SAFETY_SIDE_M", 0.05))
 
     # --- camera -----------------------------------------------------------
     camera_enabled: bool = field(default_factory=lambda: _env_bool("CAMERA", True))

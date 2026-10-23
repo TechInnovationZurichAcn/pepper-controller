@@ -6,7 +6,7 @@ head/arm commands. The presets let the LLM pick a trade-off with one call:
 
 * ``off``     – everything disabled; the LLM owns every joint (teleop-like)
 * ``calm``    – blinking + breathing + speaking gestures, no autonomous head tracking
-* ``lively``  – also BasicAwareness (looks at people/sounds, engages) + listening nods
+* ``lively``  – also BasicAwareness (looks at people, engages) + listening nods
 """
 
 from __future__ import annotations
@@ -167,7 +167,9 @@ class Awareness:
         if spec.get("BasicAwareness"):
             try:
                 self.configure_awareness(spec.get("engagement_mode"), spec.get("tracking_mode"),
-                                         {"People": True, "Sound": True, "Movement": True, "Touch": True})
+                                         # Sound off: NAOqi would turn to every noise; the attention
+                                         # reflex turns toward confirmed speech instead.
+                                         {"People": True, "Sound": False, "Movement": True, "Touch": True})
             except RobotError as exc:
                 applied["basic_awareness_error"] = str(exc)
         self.preset = preset

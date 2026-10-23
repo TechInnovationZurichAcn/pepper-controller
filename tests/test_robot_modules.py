@@ -151,3 +151,61 @@ def test_camera_releases_handles_leaked_by_killed_runs() -> None:
     finally:
         stream.stop()
     assert video.getSubscribers() == []
+
+
+def test_move_relative_reports_distance_and_safety_block() -> None:
+    from pepper_mcp.robot.motion import Motion
+
+    robot = FakeRobot()
+    conn = FakeConnection(robot)
+    conn.connect()
+    motion = Motion(conn, EventBus())
+    result = motion.move_relative(0.5, 0.0, math.radians(90))
+    assert result["moved"] == {"x_m": 0.5, "y_m": 0.0, "theta_deg": 90.0}
+    # NAOqi aborts a move with an obstacle in the safety bubble but moveTo returns normally
+    robot.block_moves = True
+    with pytest.raises(RobotError, match="Safety"):
+        motion.move_relative(1.0, 0.0, 0.0)
+
+
+def test_move_relative_flags_a_move_that_silently_did_nothing() -> None:
+    from pepper_mcp.robot.motion import Motion
+
+    robot = FakeRobot()
+    conn = FakeConnection(robot)
+    conn.connect()
+    motion = Motion(conn, EventBus())
+    motion.MOVE_FAILED_GRACE_S = 0.0
+    robot.services["ALMotion"].returns["moveTo"] = lambda *a: None  # refused without MoveFailed
+    with pytest.raises(RobotError, match="did not complete"):
+        motion.move_relative(0.0, 0.0, math.radians(-30))
+
+
+def test_move_relative_serialises_moves_and_reports_interruptions() -> None:
+    import threading as _threading
+
+    from pepper_mcp.robot.motion import Motion
+
+    robot = FakeRobot()
+    conn = FakeConnection(robot)
+    conn.connect()
+    motion = Motion(conn, EventBus())
+    motion.MOVE_FAILED_GRACE_S = 0.0
+    release = _threading.Event()
+
+    def slow_move(*_: float) -> None:
+        release.wait(2)
+        robot.memory_set("ALMotion/MoveFailed", ["Internal stop", 1, [0.0, 0.0, 0.0]])
+
+    robot.services["ALMotion"].returns["moveTo"] = slow_move
+    results: list = []
+    worker = _threading.Thread(target=lambda: results.append(motion.move_relative(1.0, 0.0, 0.0)))
+    worker.start()
+    time.sleep(0.1)
+    # a second move must not interleave with the running one
+    with pytest.raises(RobotError, match="busy"):
+        motion.move_relative(0.0, 0.0, 1.0, wait_for_base=False)
+    release.set()
+    worker.join(2)
+    # stop_motion during a move is not a failure
+    assert results and results[0]["interrupted"] is True

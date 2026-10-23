@@ -171,7 +171,8 @@ class Listener:
         self._reset_segment()
         if speech_ms < self.min_speech_ms or not frames:
             self.stats["aborted"] += 1
-            self.bus.publish("speech.aborted", {"reason": "too_short", "speech_ms": speech_ms}, source="listener")
+            self.bus.publish("speech.aborted", {"reason": "too_short", "speech_ms": speech_ms,
+                                                     "started_at": started}, source="listener")
             return
         audio = np.concatenate(frames)
         self._stt_queue.put((audio, rate, started, time.time()))
@@ -205,14 +206,14 @@ class Listener:
                 result: Transcript = self.stt.transcribe(audio, rate)
             except Exception as exc:
                 log.warning("STT failed: %s", exc)
-                self.bus.publish("speech.aborted", {"reason": f"stt_error: {exc}"}, source="listener")
+                self.bus.publish("speech.aborted", {"reason": f"stt_error: {exc}", "started_at": started}, source="listener")
                 continue
             latency = time.monotonic() - t0
             self.stats["last_stt_latency_ms"] = int(latency * 1000)
             text = result.text.strip()
             if not text or _looks_like_noise(text):
                 self.stats["aborted"] += 1
-                self.bus.publish("speech.aborted", {"reason": "empty_transcript"}, source="listener")
+                self.bus.publish("speech.aborted", {"reason": "empty_transcript", "started_at": started}, source="listener")
                 continue
             self.stats["utterances"] += 1
             payload = {"text": text, "language": result.language, "confidence": result.confidence,

@@ -52,7 +52,7 @@ class Runtime:
                 conn = RobotConnection(settings.ip or "", settings.port, settings.listen_url)
         self.conn = conn
         self.memory = MemoryWatcher(conn, settings.memory_poll_s)
-        self.motion = Motion(conn, self.bus)
+        self.motion = Motion(conn, self.bus, self.memory)
         self.speech = Speech(conn, self.bus, settings.language)
         self.animations = Animations(conn)
         self.system = System(conn)
@@ -121,6 +121,8 @@ class Runtime:
             self._optional("autonomous life", self.awareness.disable_life)
         if s.wake_up:
             self._optional("wake up / posture", lambda: self.motion.prepare("StandInit"))
+        self._optional("base safety distances",
+                       lambda: self.motion.set_security_distances(s.safety_front_m, s.safety_side_m))
         self.motion.start()
         self._optional("liveliness preset", lambda: self.awareness.apply_preset(s.liveliness))
         self.speech.start()

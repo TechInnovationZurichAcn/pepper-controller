@@ -14,7 +14,7 @@ import time
 from typing import Any
 
 from pepper_mcp.robot.connection import RobotConnection, RobotError
-from pepper_mcp.robot.events import EventBus
+from pepper_mcp.robot.events import EventBus, MemoryWatcher
 
 log = logging.getLogger(__name__)
 
@@ -74,11 +74,35 @@ ARM_POSES_DEG: dict[str, dict[str, float]] = {
     "out": {"ShoulderPitch": 20, "ShoulderRoll": 75, "ElbowYaw": -40, "ElbowRoll": -15, "WristYaw": 0},
     "hug": {"ShoulderPitch": 30, "ShoulderRoll": 20, "ElbowYaw": -80, "ElbowRoll": -70, "WristYaw": -30},
     "wave_ready": {"ShoulderPitch": -45, "ShoulderRoll": 25, "ElbowYaw": -50, "ElbowRoll": -80, "WristYaw": 0},
-    "high_five": {"ShoulderPitch": -30, "ShoulderRoll": 15, "ElbowYaw": 10, "ElbowRoll": -45, "WristYaw": -60},
+    # hand well above the head, elbow almost straight, palm turned forward
+    "high_five": {"ShoulderPitch": -75, "ShoulderRoll": 15, "ElbowYaw": 10, "ElbowRoll": -20, "WristYaw": -60},
 }
 
 DEFAULT_ORTHO_SECURITY = 0.4
 DEFAULT_TANGENT_SECURITY = 0.1
+MOVE_FAILED_KEY = "ALMotion/MoveFailed"
+
+
+def _mostly_done(x: float, y: float, theta_rad: float, moved: dict[str, float]) -> bool:
+    """True when the odometry covered at least half of every meaningful part of the request."""
+    if math.hypot(x, y) > 0.05 and math.hypot(moved["x_m"], moved["y_m"]) < 0.5 * math.hypot(x, y):
+        return False
+    return not (abs(theta_rad) > math.radians(5) and abs(math.radians(moved["theta_deg"])) < 0.5 * abs(theta_rad))
+
+
+def is_interruption(value: Any) -> bool:
+    """MoveFailed caused by stopMove / a newer move rather than by the world."""
+    cause = value[0] if isinstance(value, (list, tuple)) and value else value
+    return str(cause) == "Internal stop"
+
+
+def describe_move_failure(value: Any) -> str:
+    """Human-readable cause from ALMotion/MoveFailed ([cause, status, [x, y, z]])."""
+    cause = value[0] if isinstance(value, (list, tuple)) and value else value
+    hints = {"Safety": "an obstacle or person is inside the safety distance (see set_safety)",
+             "Internal stop": "the move was interrupted (stop_motion or a new move)",
+             "Collision": "something touched the robot"}
+    return f"{cause} – {hints.get(str(cause), 'NAOqi refused the move')}"
 
 
 def deg(rad: float) -> float:
@@ -119,11 +143,16 @@ class Motion:
     """Base + joints + posture with a velocity watchdog."""
 
     MAX_MOVE_DURATION_S = 5.0
+    MOVE_FAILED_GRACE_S = 0.2
     KEEPALIVE_S = 0.25
 
-    def __init__(self, conn: RobotConnection, bus: EventBus):
+    def __init__(self, conn: RobotConnection, bus: EventBus, memory: MemoryWatcher | None = None):
         self.conn = conn
         self.bus = bus
+        self.memory = memory
+        # One moveTo at a time: a second one aborts the first ("Internal stop") and both would
+        # read the same ALMotion/MoveFailed key.
+        self._move_lock = threading.Lock()
         self._vel = (0.0, 0.0, 0.0)
         self._vel_until = 0.0
         self._vel_lock = threading.Lock()
@@ -206,6 +235,64 @@ class Motion:
 
     def move_to_async(self, x: float, y: float, theta_rad: float) -> Any:
         return RobotConnection.call_async(self.motion, "moveTo", float(x), float(y), float(theta_rad))
+
+    def move_relative(self, x: float, y: float, theta_rad: float, wait_for_base: bool = True) -> dict[str, Any]:
+        """Blocking ``moveTo`` that reports what really happened.
+
+        ``moveTo`` returns normally even when NAOqi aborts the move (obstacle in the safety
+        bubble, collision, fall manager); the only trace is ``ALMotion/MoveFailed``. Compare
+        odometry before/after and raise with the reason so the caller learns about it. A move
+        stopped on purpose (stop_motion) returns with ``interrupted`` instead of raising.
+        With ``wait_for_base=False`` it raises right away if another move is running."""
+        if not self._move_lock.acquire(blocking=wait_for_base):
+            raise RobotError("the base is busy with another move")
+        try:
+            return self._move_relative(x, y, theta_rad)
+        finally:
+            self._move_lock.release()
+
+    def _move_relative(self, x: float, y: float, theta_rad: float) -> dict[str, Any]:
+        self._write_memory(MOVE_FAILED_KEY, "")
+        before = self.motion.getRobotPosition(True)
+        self.motion.moveTo(float(x), float(y), float(theta_rad))
+        # a move refused up front returns at once and MoveFailed is written a moment later
+        time.sleep(self.MOVE_FAILED_GRACE_S)
+        try:
+            failed = self.conn.service("ALMemory").getData(MOVE_FAILED_KEY)
+        except Exception:
+            failed = None
+        result: dict[str, Any] = {"requested": {"x_m": x, "y_m": y, "theta_deg": deg(theta_rad)}}
+        try:
+            after = self.motion.getRobotPosition(True)
+        except Exception as exc:
+            if failed:
+                raise RobotError(f"move stopped early: {describe_move_failure(failed)}") from exc
+            return {**result, "moved": None, "warning": f"could not read odometry to verify the move: {exc}"}
+        # odometry delta expressed in the start frame
+        dx, dy = after[0] - before[0], after[1] - before[1]
+        c, s_ = math.cos(before[2]), math.sin(before[2])
+        moved = {"x_m": round(c * dx + s_ * dy, 3), "y_m": round(-s_ * dx + c * dy, 3),
+                 "theta_deg": deg(math.atan2(math.sin(after[2] - before[2]), math.cos(after[2] - before[2])))}
+        result["moved"] = moved
+        if failed and is_interruption(failed):
+            return {**result, "interrupted": True}
+        if failed:
+            reason = describe_move_failure(failed)
+            raise RobotError(f"move stopped early: {reason}; moved {moved}")
+        if not _mostly_done(x, y, theta_rad, moved):
+            raise RobotError(f"move did not complete (moved {moved}); probably an obstacle inside the safety "
+                             "distance – check get_sonar, make room or lower set_safety")
+        return result
+
+    def _write_memory(self, key: str, value: Any) -> None:
+        # through the watcher when there is one, so its poller sees the next identical failure
+        if self.memory is not None:
+            self.memory.set(key, value)
+            return
+        try:
+            self.conn.service("ALMemory").insertData(key, value)
+        except Exception as exc:
+            log.debug("insertData(%s): %s", key, exc)
 
     def get_pose(self) -> dict[str, float]:
         x, y, th = self.motion.getRobotPosition(True)

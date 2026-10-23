@@ -10,6 +10,7 @@ speech so reflexes and events can be tested end-to-end.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -260,6 +261,8 @@ class FakeRobot:
         self.registered: dict[str, Any] = {}
         self.memory = FakeMemory(subscriber_works)
         self.spoken: list[str] = []
+        self.pose = [0.0, 0.0, 0.0]
+        self.block_moves = False  # simulate an obstacle inside the safety distance
         self._audio_fn: Callable[[float, int, int], Any] | None = None
         animations = [f"animations/Stand/Gestures/{n}" for n in ("Hey_1", "Hey_3", "Yes_1", "No_1", "Explain_1",
                                                                   "BowShort_1", "Thinking_1")]
@@ -276,8 +279,9 @@ class FakeRobot:
             "ALMemory": self.memory,
             "ALMotion": FakeService("ALMotion", returns={
                 "getAngles": lambda names, use_sensors: [0.0] * len(names),
-                "getRobotPosition": lambda *_: [0.1, 0.0, 0.05], "robotIsWakeUp": True,
-                "getExternalCollisionProtectionEnabled": True}),
+                "getRobotPosition": lambda *_: list(self.pose), "robotIsWakeUp": True,
+                "getExternalCollisionProtectionEnabled": True, "moveTo": self._move_to,
+                "moveIsActive": False}),
             "ALRobotPosture": FakeService("ALRobotPosture", returns={"goToPosture": True,
                                                                      "getPostureFamily": "Standing"}),
             "ALTextToSpeech": tts,
@@ -323,6 +327,16 @@ class FakeRobot:
         self.session = FakeSession(self)
 
     # ------------------------------------------------------------- scripting helpers
+    def _move_to(self, x: float, y: float, theta: float) -> None:
+        # like NAOqi: a blocked move stops partway, returns normally and only reports MoveFailed
+        frac = 1.0
+        if self.block_moves:
+            frac = 0.25
+            self.memory_set("ALMotion/MoveFailed", ["Safety", 1, [0.3, 0.0, 0.0]])
+        c, s_ = math.cos(self.pose[2]), math.sin(self.pose[2])
+        self.pose = [self.pose[0] + frac * (c * x - s_ * y), self.pose[1] + frac * (s_ * x + c * y),
+                     self.pose[2] + frac * theta]
+
     def memory_set(self, key: str, value: Any) -> None:
         self.memory.insertData(key, value)
 
