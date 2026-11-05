@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Tic-tac-toe with Pepper</title>
+<!-- Runs in Pepper's Android 5 WebView: ES5 only, XHR, table layout, no CSS grid/variables. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #eaf2ff; overflow: hidden;
+               font-family: sans-serif; text-align: center; -webkit-user-select: none; user-select: none;
+               -webkit-tap-highlight-color: rgba(0,0,0,0); }
+  #wrap { display: -webkit-box; display: -webkit-flex; display: flex; height: 100%;
+          -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+          -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center; }
+  #side { width: 36vw; padding: 0 3vw; }
+  h1 { margin: 0 0 3vh; font-size: 7vh; min-height: 18vh; }
+  table { border-spacing: 1.4vh; }
+  td { width: 26vh; height: 26vh; background: #18213d; border-radius: 2.4vh; font-size: 20vh;
+       font-weight: bold; line-height: 26vh; text-align: center; vertical-align: middle; padding: 0; }
+  td.free { cursor: pointer; }
+  td.free:active { background: #26325a; }
+  td.win { background: #2e3b66; }
+  td.last { box-shadow: inset 0 0 0 0.8vh #ffd166; }
+  .X { color: #ff6b6b; }
+  .O { color: #4dd2ff; }
+  .score { font-size: 4.5vh; color: #9fb0d8; margin: 1.5vh 0; }
+  .score b { color: #eaf2ff; }
+  button { font-size: 5vh; padding: 2.5vh 5vh; margin-top: 4vh; border: 0; border-radius: 2vh;
+           background: #ffd166; color: #0b1020; font-weight: bold; }
+  #net { position: fixed; bottom: 1vh; left: 0; right: 0; font-size: 3vh; color: #ff6b6b; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <table id="board"></table>
+  <div id="side">
+    <h1 id="msg">Loading…</h1>
+    <div class="score">You <span id="hs" class="X"></span> <b id="hw">0</b></div>
+    <div class="score">Pepper <span id="ps" class="O"></span> <b id="pw">0</b></div>
+    <div class="score">Draws <b id="dw">0</b></div>
+    <button id="again" class="hidden">Play again</button>
+  </div>
+</div>
+<div id="net"></div>
+<script>
+(function () {
+  var API = "/api/game/tictactoe";
+  var state = null;
+  var busy = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function request(method, path, body, done) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, path, true);
+    xhr.timeout = 4000;
+    if (body !== null) { xhr.setRequestHeader("Content-Type", "application/json"); }
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) { return; }
+      var data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+      done(xhr.status, data);
+    };
+    xhr.send(body === null ? null : JSON.stringify(body));
+  }
+
+  function message(s) {
+    if (!s.active && s.result === null) { return "Waiting for a game…"; }
+    if (s.result === "human") { return "You win!"; }
+    if (s.result === "pepper") { return "Pepper wins!"; }
+    if (s.result === "draw") { return "It's a draw!"; }
+    if (s.result === "stopped") { return "Game stopped"; }
+    return s.turn === "human" ? "Your turn" : "Pepper is thinking…";
+  }
+
+  function render(s) {
+    var win = {}, i, r, c, html = "";
+    if (s.winning_cells) { for (i = 0; i < s.winning_cells.length; i++) { win[s.winning_cells[i]] = true; } }
+    var mine = s.active && s.turn === "human" && !busy;
+    for (r = 0; r < 3; r++) {
+      html += "<tr>";
+      for (c = 0; c < 3; c++) {
+        var n = r * 3 + c + 1, v = s.board[n - 1], cls = [];
+        if (v) { cls.push(v); } else if (mine) { cls.push("free"); }
+        if (win[n]) { cls.push("win"); }
+        if (s.last_move && s.last_move.cell === n && !s.winning_cells) { cls.push("last"); }
+        html += '<td data-cell="' + n + '" class="' + cls.join(" ") + '">' + (v || "") + "</td>";
+      }
+      html += "</tr>";
+    }
+    $("board").innerHTML = html;
+    $("msg").textContent = message(s);
+    $("hs").textContent = s.human; $("hs").className = s.human;
+    $("ps").textContent = s.pepper; $("ps").className = s.pepper;
+    $("hw").textContent = s.score.human; $("pw").textContent = s.score.pepper; $("dw").textContent = s.score.draw;
+    $("again").className = (!s.active && s.result !== null) ? "" : "hidden";
+  }
+
+  function accept(status, data) {
+    if (status === 200 && data) {
+      $("net").textContent = "";
+      if (!state || data.version !== state.version || data.game_id !== state.game_id) {
+        state = data;
+        render(state);
+      }
+    } else if (status === 0) {
+      $("net").textContent = "Connection to the server lost…";
+    }
+  }
+
+  function poll() {
+    request("GET", API, null, function (status, data) {
+      accept(status, data);
+      setTimeout(poll, 400);
+    });
+  }
+
+  function post(path, body) {
+    busy = true;
+    if (state) { render(state); }
+    request("POST", path, body, function (status, data) {
+      busy = false;
+      if (status === 200 && data) {
+        accept(200, data);
+      } else {
+        $("net").textContent = (data && data.error) ? data.error : "Move failed";
+        if (state) { render(state); }
+      }
+    });
+  }
+
+  $("board").onclick = function (ev) {
+    var el = ev.target || ev.srcElement;
+    if (!el || !el.getAttribute || busy || !state || !state.active || state.turn !== "human") { return; }
+    var cell = parseInt(el.getAttribute("data-cell"), 10);
+    if (!cell || state.board[cell - 1]) { return; }
+    post(API + "/move", {cell: cell});
+  };
+  $("again").onclick = function () { post(API + "/new", {}); };
+
+  poll();
+})();
+</script>
+</body>
+</html>

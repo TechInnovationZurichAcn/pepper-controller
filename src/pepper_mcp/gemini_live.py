@@ -1,8 +1,8 @@
 """``pepper-mcp-gemini``: Pepper as a real-time Gemini Live agent.
 
-Like ``pepper-mcp-agent`` it starts the MCP server in-process and drives the robot only through
-its tools (same safety limits, same task/event model). The difference is the loop: Gemini Live is
-a streaming speech-to-speech model, so instead of turns over text it gets
+It starts the MCP server in-process and drives the robot only through its tools (same safety
+limits, same task/event model). Gemini Live is a streaming speech-to-speech model, so instead of
+turns over text it gets
 
     Pepper's front mic (16 kHz PCM)  ──►┐
     Pepper's head camera (JPEG, 1 fps) ─►  Gemini Live session  ──► Pepper's loudspeakers (24 kHz PCM)
@@ -60,6 +60,7 @@ SOUND_TOOLS = frozenset({"play_gesture", "play_animation", "play_audio", "play_s
 FORWARDED_EVENTS = frozenset({
     "person.appeared", "person.left", "person.waving", "touch.start", "reflex.completed",
     "task.finished", "motion.blocked", "robot.fell", "battery.low", "nav.status",
+    "game.started", "game.move", "game.over",
 })
 
 PERSONA = """You are {name}, a friendly, curious humanoid robot made by SoftBank, standing in the room
@@ -72,6 +73,10 @@ thinking_pose, high_five, ...; prefer these over play_animation, whose names mus
 list_animations), look at people (look_at_person, look_toward, look), turn to face
 them (turn), walk over (move_to in metres, move for short drives), show feelings with your lights
 (set_mood_lights, set_leds) and use your tablet (tablet_show_text) for key words.
+When someone wants to play a game, start tic-tac-toe on your tablet (tictactoe_start). Your moves
+are made for you the moment the person taps a square; [robot event] game.move and game.over notes
+tell you what happened, so cheer, tease or congratulate in a few words. If they say their move
+out loud, pass it on with tictactoe_move (squares 1-9, top-left to bottom-right).
 Never describe a tool call ("I'll set my mood to happy") - just do it and talk naturally.
 
 Moving is real and can be refused. Moves, turns and gestures run in the background: say what you
@@ -152,6 +157,8 @@ def format_event(event_type: str, data: dict[str, Any]) -> str | None:
             return None
     if event_type == "person.left" and (data.get("present_for_s") or 99) < 3:
         return None
+    if event_type == "game.move" and data.get("player") == "human" and data.get("next") == "pepper":
+        return None  # Pepper's reply follows within a second and carries the whole board
     keep = {k: v for k, v in data.items() if k not in ("raw", "ts", "position_m") and v is not None}
     return f"[robot event] {event_type} {json.dumps(keep, default=str)[:400]}"
 

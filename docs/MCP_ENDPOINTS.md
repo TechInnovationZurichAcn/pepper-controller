@@ -284,7 +284,7 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 
 ## 6. Transports
 
-* `stdio` (default) – for Claude Desktop / Claude Code / any local MCP client.
+* `stdio` (default) – for any local MCP client (and the in-process client of `pepper-mcp-gemini`).
 * `streamable-http` – `pepper-mcp --transport streamable-http --host 0.0.0.0 --http-port 8808`
   (`--port` is the robot's NAOqi port, not the HTTP port).
 * Side channel for humans and non-MCP consumers (optional, `--preview-port`):

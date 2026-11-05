@@ -38,6 +38,9 @@ EVENT_CATALOGUE: dict[str, str] = {
     "robot.stopped": "stop_motion was executed",
     "battery.low": "battery below 15 % {percent}",
     "tablet.touched": "someone touched the tablet {x, y}",
+    "game.started": "a tic-tac-toe game started (tool or the tablet's Play again) {game_id, human, pepper, first, difficulty}",
+    "game.move": "a tic-tac-toe move {player: human|pepper, cell 1-9, rows, next}",
+    "game.over": "a tic-tac-toe game ended {result: human|pepper|draw|stopped, winning_cells, rows, score}",
     "server.started": "the server finished starting",
 }
 

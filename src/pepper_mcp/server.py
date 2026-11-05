@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 INSTRUCTIONS = """You are connected to a SoftBank Pepper robot through this server.
 Pepper can see (camera_snapshot), hear (listen / wait_for_event speech.final), talk with gestures
 (say), move its body (move, look, play_gesture, play_animation), light up (set_leds), show things
-on its tablet and sense people, touch and sound. Events arrive in real time: call
+on its tablet, play tic-tac-toe on it (tictactoe_start) and sense people, touch and sound. Events arrive in real time: call
 `wait_for_event` (or `listen`) instead of polling. Keep spoken sentences short and call `say` as
 soon as you know the first sentence – it queues, so you can keep thinking while Pepper talks.
 Reflexes (high five, greeting wave, attention) run automatically; you will be told via
@@ -140,7 +140,10 @@ How to run your loop:
    speeds, `stop_motion` when someone asks you to stop, never drive while someone touches you.
 7. If nothing happens for a while, do something idle but alive: look around (`look_toward`),
    a small animation, a comment about what you see.
-8. Only talk in the user's language (speech.final.language). Keep answers conversational,
+8. When someone wants to play a game, call `tictactoe_start`: the board appears on the tablet and
+   your moves are made automatically. React to `game.move` (player=pepper) and `game.over` events
+   with a short remark; relay spoken moves with `tictactoe_move` (1-9, reading order).
+9. Only talk in the user's language (speech.final.language). Keep answers conversational,
    1-3 short sentences unless asked for more.
 
 Timing matters more than perfect wording: respond within a second, then refine."""
@@ -155,10 +158,12 @@ QUICK_REFERENCE = """Pepper MCP quick reference
   set_body_lean(hip_pitch,hip_roll,knee); set_joint_angles(); set_safety(front_m, side_m)
 - See: camera_snapshot(camera top|bottom|depth); get_people(); analyze_face(); get_sonar()
 - Lights/tablet: set_leds(group,color); set_mood_lights(mood); tablet_show_text(text)
+- Games: tictactoe_start(human_symbol, human_first, difficulty); tictactoe_move(cell 1-9); tictactoe_state();
+  tictactoe_stop()
 - Reflexes: list_reflexes(); set_reflex(name, enabled, params)
 - Events: speech.final, speech.started, person.appeared/left/waving/looking_at_robot/engaged,
   touch.start/end, sound.located, reflex.triggered/completed, task.finished, tts.started/finished,
-  nav.status, motion.blocked, battery.low, robot.fell"""
+  nav.status, motion.blocked, battery.low, robot.fell, game.started/move/over"""
 
 
 def _register_prompts(mcp: MCPServer) -> None:

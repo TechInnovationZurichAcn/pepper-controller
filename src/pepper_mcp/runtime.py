@@ -15,6 +15,7 @@ from typing import Any
 
 from pepper_mcp import __version__
 from pepper_mcp.config import Settings
+from pepper_mcp.games.tictactoe import TicTacToe
 from pepper_mcp.robot.animation import Animations
 from pepper_mcp.robot.asr import OnRobotASR
 from pepper_mcp.robot.audio_in import MicrophoneStream
@@ -72,6 +73,7 @@ class Runtime:
         self.vision = None
         self.preview = None
         self.gestures = GestureRegistry(self._gesture_context)
+        self.tictactoe = TicTacToe(self.bus)
         self._asset_urls: dict[str, str | None] = {}
         self._lock = threading.Lock()
         self.warnings: list[str] = []
@@ -220,6 +222,7 @@ class Runtime:
             ("tracker", lambda: self.tracker and self.tracker.stop()),
             ("navigator", lambda: self.navigator and self.navigator.stop()),
             ("gestures", self.gestures.stop_all),
+            ("games", self.tictactoe.shutdown),
             ("tasks", self.tasks.cancel_all),
             ("speech", lambda: (self.speech.stop_speaking(), self.speech.stop())),
             ("motion", lambda: (self.motion.restore_defaults(), self.motion.stop())),

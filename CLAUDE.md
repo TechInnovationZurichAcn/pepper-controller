@@ -1,8 +1,9 @@
 # pepper-mcp
 
 MCP server that lets an LLM drive a SoftBank **Pepper** (NAOqi 2.5.10.7) in real time:
-106 tools, 10 resources, 2 prompts, an event bus and server-side reflexes. Branch
-`mcp-server` holds only the server; the old keyboard teleop lives on `main`.
+106 tools, 10 resources, 2 prompts, an event bus and server-side reflexes, driven by Gemini Live
+(`pepper-mcp-gemini`). Branch `mcp-server` holds only the server; the old keyboard teleop
+lives on `main`.
 
 Docs: `README.md` (full bring-up from power-on to talking, config table, troubleshooting),
 `docs/ARCHITECTURE.md` (latency design, threads, safety), `docs/MCP_ENDPOINTS.md` (every
@@ -14,7 +15,7 @@ same change.
 
 ```bash
 source .venv/bin/activate                      # Python 3.12 venv; qi has no wheels for 3.13+
-uv pip install -e ".[robot,speech,dev]"        # recreate deps (extras: agent, vision)
+uv pip install -e ".[robot,speech,dev]"        # recreate deps (extras: gemini, vision)
 pytest -q                                      # whole suite runs against robot/fake.py, no hardware
 ruff check src tests                           # lint (config in pyproject.toml)
 pepper-mcp --fake --stt none --preview-port 8765 --transport streamable-http   # server without robot
@@ -36,16 +37,15 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>`.
   `robot/fake.py` is the in-memory NAOqi used by tests and `--fake`; extend it whenever a
   robot module starts calling a new NAOqi method.
 - `speech/` (VAD → STT → `speech.final`), `reflexes/` (subclass `reflexes.base.Reflex`),
-  `vision/` (optional MediaPipe), `preview.py` (HTTP side channel), `agent.py` (reference
-  Claude loop, model `claude-opus-5-5`), `gemini_live.py` (`pepper-mcp-gemini`, Gemini Live
-  on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`).
+  `vision/` (optional MediaPipe), `preview.py` (HTTP side channel), `gemini_live.py`
+  (`pepper-mcp-gemini`, Gemini Live on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`).
 
 ## Rules that are easy to break
 
 - **stdout is the MCP protocol on stdio.** Log via `logging` (configured to stderr); never
   `print` from server code. `verify.py` is a standalone CLI and may print.
 - **One process owns the robot.** Stop a running `pepper-mcp` before starting another or
-  connecting Claude Code.
+  `pepper-mcp-gemini`.
 - **Never block before a timed motion.** `ALTabletService.showWebview` and other slow qi
   calls stall for seconds; run them off the motion thread or in a background task.
 - **ALMemory.subscriber raises `Invalid signature` on this robot.** Go through
@@ -61,8 +61,8 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>`.
 - **Motion safety stays on:** joint targets are clamped (`motion.JOINT_LIMITS`), `move`
   durations expire (≤ 5 s watchdog), `stop_motion` must keep cancelling base, animations,
   tracking and navigation.
-- **Secrets:** the Anthropic key comes from `pass`; robot SSH password is a `Settings`
-  default and must never be logged (`Settings.summary` masks it).
+- **Secrets:** the Gemini key lives only in the git-ignored `.env`; robot SSH password is a
+  `Settings` default and must never be logged (`Settings.summary` masks it).
 
 ## Tests
 

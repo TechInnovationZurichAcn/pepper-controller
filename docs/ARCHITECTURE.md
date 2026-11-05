@@ -20,7 +20,7 @@ waits on the robot unless the LLM asks it to (`wait=True`).
                 ┌──────────────────────────── laptop ───────────────────────────────┐
                 │                                                                   │
  LLM client ────┤ MCP (stdio / streamable-http)                                     │
- (Claude, …)    │   server.py ── tools/*  resources  prompts                        │
+ (Gemini, …)    │   server.py ── tools/*  resources  prompts                        │
                 │       │                                                           │
                 │   Runtime (runtime.py) ──── EventBus (robot/events.py)            │
                 │    │  │  │  │  │  │  │  │             ▲        ▲                   │
@@ -73,14 +73,13 @@ src/pepper_mcp/
   dashboard.py      dashboard state snapshot + whitelisted actions (dashboard.html = page)
   verify.py         `pepper-mcp-verify`: checklist run against the real robot
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
-  agent.py          `pepper-mcp-agent`: reference Claude agent loop (streaming TTS)
   gemini_live.py    `pepper-mcp-gemini`: Gemini Live speech-to-speech agent (see 2.2)
 ```
 
 ### 2.2 Gemini Live agent
 
-`pepper-mcp-gemini` runs the server in-process like `agent.py` and calls the robot only through
-the MCP client, but replaces the text turn loop with one streaming Gemini Live session:
+`pepper-mcp-gemini` runs the server in-process and calls the robot only through an in-memory
+MCP client, driven by one streaming Gemini Live session instead of a text turn loop:
 
 - **In:** `MicrophoneStream` consumer (16 kHz front mic, the exact Live input format) and
   `CameraStreams.snapshot("top")` once per second (the API's maximum). `camera_snapshot` calls

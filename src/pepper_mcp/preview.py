@@ -10,6 +10,8 @@
 * ``/audio.wav``         live 16-bit PCM WAV stream from the microphone
 * ``/events``            server-sent events (every EventBus event as JSON)
 * ``/status``            JSON status; ``/assets/<file>`` bundled assets (tablet GIFs)
+* ``/game/tictactoe``    tic-tac-toe page for Pepper's tablet; it polls ``/api/game/tictactoe`` and
+                         POSTs ``/api/game/tictactoe/move`` ``{"cell": 1-9}`` and ``/api/game/tictactoe/new``
 
 Only the standard library is used so it never gets in the way of the MCP server.
 """
@@ -31,10 +33,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from pepper_mcp import dashboard
+from pepper_mcp.games import tictactoe
 from pepper_mcp.robot.audio_out import ASSETS_DIR
 from pepper_mcp.robot.connection import RobotError
 
 MAX_BODY = 16 * 1024
+GAME_API = "/api/game/tictactoe"
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +53,7 @@ def _ip_or_localhost(host: str) -> bool:
 
 
 def control_denied(client_ip: str, headers: Any, token: str, json_body: bool = True,
-                   action: str | None = None) -> str | None:
+                   action: str | None = None, open_to_lan: bool = False) -> str | None:
     """Why a dashboard control request must be refused, or ``None`` when it may run.
 
     The preview server listens on the LAN so the tablet and phones can watch, but driving the
@@ -58,7 +62,8 @@ def control_denied(client_ip: str, headers: Any, token: str, json_body: bool = T
     (cross-origin JSON needs a CORS preflight, which this server never grants); requiring the
     ``Host`` to be an IP or ``localhost`` stops DNS rebinding (a hostile domain re-resolved to
     127.0.0.1 would otherwise count as same-origin). ``stop`` only ever makes the robot safer,
-    so any device that passes those checks may send it.
+    so any device that passes those checks may send it. ``open_to_lan`` does the same for
+    requests that cannot move the robot (game moves from Pepper's tablet, which is never local).
     """
     host = urlparse("//" + (headers.get("Host") or "")).hostname or ""
     if not _ip_or_localhost(host):
@@ -72,7 +77,7 @@ def control_denied(client_ip: str, headers: Any, token: str, json_body: bool = T
         local = ipaddress.ip_address(client_ip).is_loopback
     except ValueError:
         local = False
-    if local or action == "stop":
+    if local or action == "stop" or open_to_lan:
         return None
     if not token:
         return "controls are only allowed from the server machine; start pepper-mcp with --preview-token to allow other devices"
@@ -133,6 +138,10 @@ class PreviewServer:
                         out = dashboard.state(rt)
                         out["control"] = server._denied(self, json_body=False) is None
                         self._send(200, json.dumps(out, default=str).encode(), "application/json")
+                    elif path == "/game/tictactoe":
+                        self._send(200, tictactoe.page_html(), "text/html; charset=utf-8")
+                    elif path == GAME_API:
+                        self._send(200, json.dumps(rt.tictactoe.state()).encode(), "application/json")
                     elif path == "/status":
                         self._send(200, json.dumps(rt.status(), default=str).encode(), "application/json")
                     elif path == "/events":
@@ -170,6 +179,9 @@ class PreviewServer:
 
             def do_POST(self) -> None:
                 path = self.path.split("?")[0]
+                if path.startswith(GAME_API + "/"):
+                    server._game_post(self, path[len(GAME_API) + 1:])
+                    return
                 if not path.startswith("/api/action/"):
                     self._send(404, b"not found", "text/plain")
                     return
@@ -215,6 +227,37 @@ class PreviewServer:
         action = handler.path.split("?")[0].removeprefix("/api/action/") if json_body else None
         return control_denied(handler.client_address[0], handler.headers, self.rt.settings.preview_token,
                               json_body, action)
+
+    def _game_post(self, handler: Any, action: str) -> None:
+        """Touches from the tablet page. Open to the LAN (the tablet is another device) because a
+        game move only changes the board; Host, JSON and same-origin checks still apply."""
+        denied = control_denied(handler.client_address[0], handler.headers, self.rt.settings.preview_token,
+                                json_body=True, open_to_lan=True)
+        if denied:
+            handler._send(403, json.dumps({"error": denied}).encode(), "application/json")
+            return
+        game = self.rt.tictactoe
+        try:
+            length = int(handler.headers.get("Content-Length") or 0)
+            if not 0 <= length <= MAX_BODY:
+                raise ValueError("invalid request body length")
+            args = json.loads(handler.rfile.read(length) or b"{}") if length else {}
+            if not isinstance(args, dict):
+                raise ValueError("body must be a JSON object")
+            if action == "move":
+                state = game.human_move(args.get("cell"), pepper_delay_s=tictactoe.PEPPER_DELAY_S)
+            elif action == "new":
+                state = game.restart(pepper_delay_s=tictactoe.PEPPER_DELAY_S)
+            else:
+                handler._send(404, json.dumps({"error": f"unknown game action {action!r}"}).encode(),
+                              "application/json")
+                return
+            handler._send(200, json.dumps(state).encode(), "application/json")
+        except (tictactoe.GameError, json.JSONDecodeError, ValueError) as exc:
+            handler._send(409 if isinstance(exc, tictactoe.GameError) else 400,
+                          json.dumps({"error": str(exc)}).encode(), "application/json")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     # ------------------------------------------------------------- streams
     def _fanout(self, event: Any) -> None:

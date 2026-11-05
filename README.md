@@ -28,12 +28,11 @@ cd ~/Personal/pepper && source .venv/bin/activate
 # 1. power Pepper on, wait for it to stand up, press the chest button once → it says its IP
 ping -c 2 <PEPPER_IP> && nc -zv <PEPPER_IP> 9559
 pepper-mcp-verify --ip <PEPPER_IP> --no-move      # optional sanity check
-claude                                            # pepper MCP server is registered, see step 11
-# inside Claude Code: /mcp__pepper__pepper_live_agent
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # step 11
 ```
 
-If the IP changed since you registered the server, re-register it (step 11). Everything
-else is explained below, from switching the robot on to talking to it.
+`GEMINI_LIVE_KEY` must be in the git-ignored `.env` (step 11). Everything else is explained
+below, from switching the robot on to talking to it.
 
 ---
 
@@ -48,7 +47,7 @@ standing for the robot's address (step 3).
 |---|---|
 | Pepper with NAOqi 2.5.x | charged (plug the charger into the back of the base; unplug it before driving) |
 | A network Pepper and the laptop share | a router you control with **client/AP isolation off**, or an Ethernet cable straight from the laptop to Pepper (step 2, option C) |
-| Laptop with internet | the LLM (Claude) runs in the cloud; only the robot traffic is local |
+| Laptop with internet | the LLM (Gemini Live) runs in the cloud; only the robot traffic is local |
 | Python 3.10 – 3.12 and [`uv`](https://docs.astral.sh/uv/) | `qi` (libqi-python) has no wheels for 3.13+; Arch's system Python is newer, so `uv` fetches 3.12 |
 | ~2 m × 2 m of clear floor | Pepper moves its base during the checks and when the LLM decides to walk |
 
@@ -99,7 +98,7 @@ many hotel and office networks) break hearing even when `ping` works.
    ```
 
 **Option B – router without internet, laptop keeps its normal Wi-Fi.** Plug the laptop into
-the router by Ethernet and stop the cable from taking the default route, otherwise Claude
+the router by Ethernet and stop the cable from taking the default route, otherwise the LLM
 is cut off:
 
 ```bash
@@ -183,8 +182,8 @@ uv pip install -e ".[robot,speech,dev]"   # qi + faster-whisper + webrtcvad + py
 pytest -q                                 # all tests run against the fake robot
 ```
 
-Extras: `robot` (`qi`, needed for real hardware), `speech` (local STT + VAD), `agent`
-(reference Claude loop, step 12), `vision` (MediaPipe hand-raise detector), `dev` (tests,
+Extras: `robot` (`qi`, needed for real hardware), `speech` (local STT + VAD), `gemini`
+(Gemini Live agent, step 11), `vision` (MediaPipe hand-raise detector), `dev` (tests,
 ruff). Every command below assumes `source .venv/bin/activate` in that shell (or call
 `.venv/bin/pepper-mcp` directly).
 
@@ -256,76 +255,15 @@ Pepper does **not** answer yet – the server only produces events. The LLM come
 `Ctrl-C` stops it; on shutdown the server stops the base and restores motion defaults and
 autonomous life. Only one process may own the robot, so stop this one before step 11.
 
-### 11. Talk to Pepper through Claude Code
+### 11. Talk to Pepper through Gemini Live
 
-Register the server once as a stdio server; Claude Code then starts and stops it for you:
-
-```bash
-cd ~/Personal/pepper
-claude mcp add pepper -- "$PWD/.venv/bin/pepper-mcp" --ip <PEPPER_IP> --preview-port 8765
-```
-
-With the GPU setup from step 6, pass the library path and device as well:
-
-```bash
-SP="$PWD/.venv/lib/python3.12/site-packages"
-claude mcp add pepper -e LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib" \
-  -- "$PWD/.venv/bin/pepper-mcp" --ip <PEPPER_IP> --preview-port 8765 --stt-device cuda
-```
-
-Then start `claude` in the repo:
-
-1. `/mcp` → `pepper` should be *connected* (takes a few seconds; the robot wakes up).
-2. Load the persona prompt: type `/mcp__pepper__pepper_live_agent` and send it.
-3. Say something like: *"Greet the room, then keep calling `wait_for_event` and respond to
-   whoever talks to you."*
-4. Talk to Pepper. Claude receives `speech.final` events, answers with `say`, and uses
-   gestures, LEDs, the camera, motion and the tablet. Keep <http://localhost:8765/> open to
-   see what it sees and hears.
-
-Quick single-tool tests that need no event loop: *"Say hello and wave"*, *"Take a camera
-snapshot and describe what you see"*, *"Set your eyes to green"*, *"Turn around"*.
-
-New IP or different flags: `claude mcp remove pepper`, then add it again.
-
-### 12. Other clients
-
-**Claude Desktop** (`claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "pepper": {
-      "command": "/home/<you>/Personal/pepper/.venv/bin/pepper-mcp",
-      "args": ["--ip", "192.168.1.5", "--preview-port", "8765"]
-    }
-  }
-}
-```
-
-Then ask Claude to load the `pepper_live_agent` prompt and start its loop with
-`wait_for_event`.
-
-**Reference agent loop** – lowest latency, because Claude's answer is streamed to the robot
-sentence by sentence while the rest is still being generated:
-
-```bash
-uv pip install -e ".[robot,speech,agent]"
-export ANTHROPIC_API_KEY="$(pass show <your-anthropic-entry>)"   # never write the key into the repo
-pepper-mcp-agent --ip <PEPPER_IP> --preview-port 8765
-```
-
-Just talk to Pepper; `Ctrl-C` to stop. It takes every `pepper-mcp` flag plus `--model`
-(default `claude-opus-5-5`), `--effort low|medium|high` (default `low`), `--persona`,
-`--idle-timeout` and `--no-fallbacks` (turns off server-side refusal fallbacks).
-
-**Gemini Live on Pepper's own mic, camera and speakers** – a speech-to-speech model hears
+A speech-to-speech model hears
 Pepper's front microphone, watches its head camera (1 fps), answers through Pepper's
 loudspeakers and drives the body through the same MCP tools (91 of them; speech, hearing and
 blocking tools such as `say` or `wait_for_event` are left out because Gemini is the voice and
 every function call pauses the model). Robot events (touch, people appearing, `motion.blocked`,
-failed tasks, high-five results) are passed to it as short notes, so it reacts like the Claude
-loop does. Nothing on the laptop is used except the network.
+failed tasks, high-five results) are passed to it as short notes, so it reacts to them like
+to speech. Nothing on the laptop is used except the network.
 
 ```bash
 uv pip install -e ".[robot,gemini]"
@@ -333,8 +271,7 @@ echo 'GEMINI_LIVE_KEY=<your key>' > .env && chmod 600 .env    # .env is git-igno
 pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
 ```
 
-It owns the robot like `pepper-mcp-agent` (stop any other `pepper-mcp`, e.g. `/mcp` in Claude
-Code, first) and prints `[heard]`, `[said]` and `[tool]` lines. Extra flags on top of every
+It owns the robot (stop any other `pepper-mcp` first) and prints `[heard]`, `[said]` and `[tool]` lines. Extra flags on top of every
 `pepper-mcp` flag: `--model` (default `gemini-3.8-live`), `--voice` (`Kore`, `Puck`,
 `Charon`, …), `--persona`, `--no-video`, `--no-transcripts`. The server's own speech-to-text
 is off unless you pass `--stt`. Pepper's mic sits next to its speakers and has no echo
@@ -342,7 +279,9 @@ cancellation, so it is muted while Pepper makes any sound (Gemini's voice, NAOqi
 reflexes, gestures with sounds): talk after Pepper finishes; interrupting mid-sentence is not
 possible. The free API tier has no Google Search quota, so search is not enabled.
 
-**Any MCP client over HTTP:**
+### 12. Other MCP clients over HTTP
+
+The standalone server still exposes every tool, resource and prompt to any MCP client:
 
 ```bash
 pepper-mcp --ip <PEPPER_IP> --transport streamable-http --host 0.0.0.0 --http-port 8808
@@ -350,7 +289,7 @@ pepper-mcp --ip <PEPPER_IP> --transport streamable-http --host 0.0.0.0 --http-po
 
 ### 13. Shut down
 
-1. Quit Claude Code / `Ctrl-C` the server or agent. The server stops the base, restores the
+1. `Ctrl-C` the server or `pepper-mcp-gemini`. The server stops the base, restores the
    NAOqi safety distances and autonomous life, and releases camera and microphone.
 2. Hold the chest button ~3 s until Pepper says goodbye and goes to rest; wait for the
    lights to go off before closing the charging hatch and plugging in the charger.
@@ -416,7 +355,7 @@ src/pepper_mcp/
   tools/        MCP tools, one module per domain (auto-registered)
   vision/       optional MediaPipe hand-raise detector
   assets/       files served to the tablet (GIF, audio)
-  preview.py    MJPEG / live audio / SSE side channel; verify.py; agent.py
+  preview.py    MJPEG / live audio / SSE side channel; verify.py
   gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
   dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
 docs/           MCP_ENDPOINTS.md, ARCHITECTURE.md, ROBOT_VERIFICATION.md
@@ -446,10 +385,9 @@ ruff check src tests
 | motors limp, nothing moves | emergency stop at the back of the neck is pressed: release it, then `wake_up` |
 | head snaps back after moves | `set_liveliness off`, or start with `--liveliness off` |
 | speech recognition slow | `--stt-model base`, GPU (step 6) or `--stt openai`; the first utterance after start is always slower |
-| Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` (e.g. 600; `-e` on `claude mcp add`) |
+| Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` (e.g. 600) |
 | `stt_error: libcublas.so.12 … not found` | GPU libs missing: step 6, or `--stt-device cpu` |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
-| Pepper never answers | expected without an LLM: connect Claude Code (step 11) or run `pepper-mcp-agent` / `pepper-mcp-gemini` |
+| Pepper never answers | expected with plain `pepper-mcp`: run `pepper-mcp-gemini` (step 11) |
 | `pepper-mcp-gemini`: Pepper does not react to speech | stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `GEMINI_LIVE_KEY` set in `.env`? `1011 … exceeded quota` at connect = the key's free-tier limit |
-| `/mcp` shows pepper failed | run the exact command from step 11 in a terminal and read stderr; another process may own the robot |
 | `qi` wheel not found | Python 3.13+: recreate the venv with `--python 3.12` |

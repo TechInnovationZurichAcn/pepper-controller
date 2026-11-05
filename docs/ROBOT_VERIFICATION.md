@@ -52,9 +52,7 @@ pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
 3. Raise a hand and hold it up facing the robot: `person.waving` fires, the
    `high_five` reflex raises Pepper's right arm, touching the back of its hand ends the
    gesture with a celebration (`reflex.completed`).
-4. Stop the server, connect an MCP client (README step 11 for Claude Code, step 12 for
-   Claude Desktop) and run the `pepper_live_agent` prompt, or run
-   `pepper-mcp-agent --ip <PEPPER_IP>`.
+4. Stop the server and run `pepper-mcp-gemini --ip <PEPPER_IP>` (README step 11).
 
 ## 3. Known firmware quirks handled in code
 
