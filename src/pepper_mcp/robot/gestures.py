@@ -224,8 +224,9 @@ class HighFiveGesture(Gesture):
         touched = False
         try:
             motion.set_angles(angles, 0.6)
-            if ctx.say and params.get("announce", True):
-                ctx.say(params.get("phrase", "High five!"))
+            # Silent unless asked: NAOqi's voice would talk over Gemini's.
+            if ctx.say and params.get("announce", True) and params.get("phrase"):
+                ctx.say(params["phrase"])
             if ctx.leds is not None:
                 try:
                     ctx.leds.set_mood("happy")
@@ -240,8 +241,8 @@ class HighFiveGesture(Gesture):
                     break
                 time.sleep(0.03)
             if touched:
-                if ctx.say:
-                    ctx.say(params.get("success_phrase", "Yeah!"))
+                if ctx.say and params.get("success_phrase"):
+                    ctx.say(params["success_phrase"])
                 # quick pump: arm back then forward
                 motion.set_angles({f"{prefix}ShoulderPitch": angles[f"{prefix}ShoulderPitch"] + 0.4}, 0.8)
                 time.sleep(0.25)
@@ -284,7 +285,8 @@ def _67_setup(ctx: GestureContext, params: dict[str, Any]) -> None:
         url = ctx.assets_url("67.html")
         if url:
             threading.Thread(target=lambda: ctx.tablet.show_url(url), daemon=True).start()
-    if ctx.say is not None and params.get("speak", True):
+    # NAOqi chanting "six seven" would talk over Gemini; Gemini says it itself.
+    if ctx.say is not None and params.get("speak", False):
         duration = float(params.get("duration_s", 6.0))
 
         def _loop() -> None:
@@ -402,8 +404,8 @@ def builtin_gestures() -> list[Gesture]:
             # is), then lower: both arms clear the hips on the way down.
             keyframes=[_kf(0.6, LShoulderRoll=12, RShoulderRoll=-12, **untwist), _kf(1.6, **down)]),
         ProceduralGesture(
-            name="sixty_seven", description="the 67 meme: palms up, arms rocking like scales while "
-            "saying 'six seven', GIF on the tablet", duration_s=6.0, tags=["emote", "fun"],
+            name="sixty_seven", description="the 67 meme: palms up, arms rocking like scales, GIF "
+            "on the tablet (say 'six seven' yourself)", duration_s=6.0, tags=["emote", "fun"],
             step=_67_step, setup=_67_setup, teardown=_67_teardown, speed=0.8),
         ProceduralGesture(
             name="clown_dance", description="whole-body jig to looped circus music", duration_s=20.0,

@@ -101,7 +101,7 @@ async def test_wait_for_event_wakes_on_person_and_reflex_high_five(client_ctx) -
             await asyncio.sleep(0.1)
         assert completed is not None, "high five reflex did not complete"
         assert completed["data"]["result"]["touched"] is False
-        assert "High five!" in robot.spoken
+        assert robot.spoken == []  # silent: Gemini does the talking
         people = _json(await client.call_tool("get_people", {}))
         assert people["count"] == 1 and people["people"][0]["waving"] is True
 

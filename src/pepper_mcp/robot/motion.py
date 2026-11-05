@@ -164,6 +164,7 @@ class Motion:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self.security = (DEFAULT_ORTHO_SECURITY, DEFAULT_TANGENT_SECURITY)
+        self._push_recovery_was: bool | None = None  # state to restore, set once we turned it off
         self.owner: str | None = None  # who currently owns the base (follow/nav) – informational
 
     @property
@@ -412,9 +413,28 @@ class Motion:
         except Exception as exc:
             log.debug("killAll: %s", exc)
 
+    def disable_push_recovery(self) -> None:
+        """Turn off ALMotion's push recovery: on a push it plays its own "ouch" sound
+        (push_recovery_*.wav, no way to mute it alone) over Gemini's voice and drives the base."""
+        was = bool(self.motion.getPushRecoveryEnabled())
+        try:
+            self.motion.setPushRecoveryEnabled(False)
+        except Exception as exc:
+            raise RobotError("NAOqi refused to turn off push recovery (Pepper will still say 'ouch' when "
+                             "pushed); tick 'Permit deactivation of the safety reflexes' on the robot's web "
+                             "page (Settings > Advanced)") from exc
+        if self._push_recovery_was is None:
+            self._push_recovery_was = was
+
     def restore_defaults(self) -> None:
         try:
             self.set_security_distances(DEFAULT_ORTHO_SECURITY, DEFAULT_TANGENT_SECURITY)
         except Exception:
             pass
+        if self._push_recovery_was is not None:
+            try:
+                self.motion.setPushRecoveryEnabled(self._push_recovery_was)
+                self._push_recovery_was = None
+            except Exception as exc:
+                log.warning("could not restore push recovery: %s", exc)
         self.stop_base()

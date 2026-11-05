@@ -480,3 +480,66 @@ def test_tablet_gives_up_after_retries_and_logs(monkeypatch: pytest.MonkeyPatch,
 
     assert svc.count("showWebview") == 1 + tablet_mod.WAKE_RETRIES
     assert "refused" in caplog.text
+
+
+# --- nothing on the robot talks or moves over Gemini on its own -----------------------------
+
+def test_push_recovery_is_off_while_running_and_restored_on_shutdown(fake_robot) -> None:  # type: ignore[no-untyped-def]
+    # Regression: a push made NAOqi's push recovery play its own "ouch" over Gemini's voice.
+    from pepper_mcp.runtime import Runtime
+    from tests.conftest import make_settings
+
+    motion = fake_robot.services["ALMotion"]
+    rt = Runtime(make_settings(), FakeConnection(fake_robot))
+    rt.start()
+    try:
+        assert motion.last("setPushRecoveryEnabled") == (False,)
+    finally:
+        rt.stop()
+    assert motion.last("setPushRecoveryEnabled") == (True,)
+
+
+def test_low_battery_reflex_only_lights_the_chest(runtime, fake_robot) -> None:  # type: ignore[no-untyped-def]
+    from pepper_mcp.robot.events import Event
+
+    runtime.reflexes.get("low_battery").react(Event("battery.low", {"percent": 12}))
+    runtime.speech.stop_speaking()
+    assert fake_robot.spoken == []  # Gemini gets battery.low and says it in its own voice
+
+
+def test_high_five_and_sixty_seven_do_not_speak_with_naoqi_by_default() -> None:
+    robot = FakeRobot()
+    said: list[str] = []
+    reg = GestureRegistry(lambda: GestureContext(motion=Motion(FakeConnection(robot), EventBus()), say=said.append))
+    reg.play("high_five", {"wait_s": 0.05})
+    reg.play("sixty_seven", {"duration_s": 0.2})
+    time.sleep(0.3)
+    assert said == []
+    reg.play("high_five", {"wait_s": 0.05, "phrase": "High five!"})
+    assert said == ["High five!"]  # still available when asked for explicitly
+
+
+def test_greet_and_basic_awareness_are_off_by_default(runtime, fake_robot) -> None:  # type: ignore[no-untyped-def]
+    assert runtime.settings.liveliness == "calm"
+    assert "greet" not in runtime.reflexes.active_names()
+    assert fake_robot.services["ALBasicAwareness"].last("setEnabled") == (False,)
+
+
+def test_refused_push_recovery_off_warns_and_is_not_restored(fake_robot) -> None:  # type: ignore[no-untyped-def]
+    # NAOqi refuses unless "Permit deactivation of the safety reflexes" is ticked on the robot page.
+    from pepper_mcp.runtime import Runtime
+    from tests.conftest import make_settings
+
+    def refuse(enabled: bool) -> None:
+        if not enabled:
+            raise RuntimeError("You have attempted to disactivate the push recovery without first enabling ...")
+
+    motion = fake_robot.services["ALMotion"]
+    motion.returns["setPushRecoveryEnabled"] = refuse
+    rt = Runtime(make_settings(), FakeConnection(fake_robot))
+    rt.start()
+    try:
+        assert any("Permit deactivation of the safety reflexes" in w for w in rt.warnings)
+    finally:
+        rt.stop()
+    assert motion.count("setPushRecoveryEnabled") == 1  # nothing to restore

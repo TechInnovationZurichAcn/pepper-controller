@@ -206,7 +206,11 @@ only cross-thread fan-out point and is thread-safe.
   may use them unless `--preview-token` is set; JSON-only bodies, an `Origin` check and an
   IP-or-localhost `Host` check keep other web pages (including DNS rebinding) from posting to
   it. `stop` is accepted from any device so every viewer has an emergency stop.
-* Shutdown restores autonomous life (if we disabled it), security distances, stops the
+* ALMotion push recovery is turned off at start: on a push it drives the base and plays its own
+  "ouch" (`push_recovery_*.wav`, no separate mute) over Gemini's voice. NAOqi only allows it once
+  *Permit deactivation of the safety reflexes* is ticked on the robot page; otherwise startup
+  warns and it stays on. Fall manager, diagnosis effect and smart stiffness stay on.
+* Shutdown restores autonomous life (if we disabled it), security distances, push recovery, stops the
   base, unsubscribes camera and audio. SIGTERM is turned into SIGINT (`cli.stop_on_signals`) so
   `kill`, systemd and the like take this path too; Python's default SIGTERM exit would skip it.
 

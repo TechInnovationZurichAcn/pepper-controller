@@ -63,8 +63,8 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
   back is open and reports it as a "Safety" stop; `Motion.check_base_ready` turns that into a clear
   error. Check it first when the base won't move.
 - **Base safety:** server starts with 0.15 / 0.05 m security distances and restores NAOqi's
-  0.4 / 0.1 on shutdown (`motion.restore_defaults`). Keep the restore in every shutdown
-  path; collision protection disabled for an emote must be re-enabled in `finally`.
+  0.4 / 0.1 on shutdown (`motion.restore_defaults`, which also turns push recovery back on).
+  Keep the restore in every shutdown path; collision protection disabled for an emote must be re-enabled in `finally`.
 - **Motion safety stays on:** joint targets are clamped (`motion.JOINT_LIMITS`), `move`
   durations expire (≤ 5 s watchdog), `stop_motion` must keep cancelling base, animations,
   tracking and navigation.

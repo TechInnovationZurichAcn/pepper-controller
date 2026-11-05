@@ -415,8 +415,11 @@ is the voice and the ears). Actions run in the background while it keeps talking
 silently, and turns that would only say "no speech" or a gesture name are kept off the speakers.
 Robot events (touch, people appearing, `motion.blocked`, failed tasks, high-five results) are
 passed to it as short notes; it reacts with its body and speaks only when a person would, without
-narrating what it sensed or which tool it used. Other reflexes (attention, greet, touch) already
-moved the body and are not reported. Nothing on the laptop is used except the network.
+narrating what it sensed or which tool it used. Other reflexes (attention, touch) already
+moved the body and are not reported. Nothing but Gemini speaks: reflexes and gestures stay silent
+in NAOqi's voice, the `greet` reflex is off (Gemini greets), BasicAwareness is off (liveliness
+`calm`) and NAOqi's push recovery, which says "ouch" when Pepper is pushed, is turned off while
+the server runs. Nothing on the laptop is used except the network.
 
 Gemini-only flags, on top of the [Configuration](#configuration) table: `--model` (default
 `gemini-3.8-live`), `--voice` (`Kore`, `Puck`, `Charon`, …), `--persona`, `--no-video`,
@@ -472,7 +475,7 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | `--preview-port` | `PEPPER_PREVIEW_PORT` | 0 (off) | control dashboard, MJPEG, WAV, SSE |
 | `--preview-token` | `PEPPER_PREVIEW_TOKEN` | empty | lets other devices use the dashboard controls (`/?token=…`); empty = laptop only |
 | `--language` | `PEPPER_LANGUAGE` | `German` | default conversation and robot TTS language; also the first language hint (plus English) for Gemini's input transcript. Pepper still answers in whatever language it is spoken to |
-| `--liveliness` | `PEPPER_LIVELINESS` | `lively` | `off`, `calm`, `lively` autonomous movement |
+| `--liveliness` | `PEPPER_LIVELINESS` | `calm` | `off`, `calm`, `lively` autonomous movement (`lively` adds BasicAwareness, which steers the head on its own) |
 | `--keep-autonomous-life` | `PEPPER_AUTONOMOUS_LIFE=keep` | disable | leave NAOqi autonomous life on |
 | `--safety-front` / `--safety-side` | `PEPPER_SAFETY_FRONT_M` / `PEPPER_SAFETY_SIDE_M` | 0.15 / 0.05 | base safety distances in m (NAOqi: 0.4 / 0.1, which blocks most indoor moves) |
 | `--reflexes-off a,b` / `--no-reflexes` | `PEPPER_REFLEXES_OFF` / `PEPPER_REFLEXES` | all on | disable reflexes |
@@ -561,6 +564,7 @@ ruff check src tests
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
 | Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 12); nothing else answers |
 | Pepper mishears words | `[heard]` wrong but the reply fits: only the transcript is off; add the words to `vocabulary.txt`. Reply wrong too: talk from within about 1 m (the fans drown speech further away) and check the `microphone(s) … look dead` log line |
+| Pepper says "ouch" (NAOqi's voice) when pushed | log says `NAOqi refused to turn off push recovery`: open `http://<PEPPER_IP>/` → Settings → Advanced, tick *Permit deactivation of the safety reflexes*, restart `pepper-mcp-gemini`. This only permits turning reflexes off; the server turns off push recovery alone and turns it back on at shutdown |
 | Pepper hears itself | the mic is muted while Pepper makes sound, plus a 0.4 s tail: talk after it has finished speaking |
 | `GEMINI_LIVE_KEY is not set` | `.env` missing or you are not in the repo root: step 4 |
 | `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |

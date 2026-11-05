@@ -317,7 +317,7 @@ class FakeRobot:
                 "getAngles": lambda names, use_sensors: [0.0] * len(names),
                 "getRobotPosition": lambda *_: list(self.pose), "robotIsWakeUp": True,
                 "getExternalCollisionProtectionEnabled": True, "moveTo": self._move_to,
-                "moveIsActive": False}),
+                "moveIsActive": False, "getPushRecoveryEnabled": True}),
             "ALRobotPosture": FakeService("ALRobotPosture", returns={"goToPosture": True,
                                                                      "getPostureFamily": "Standing"}),
             "ALTextToSpeech": tts,

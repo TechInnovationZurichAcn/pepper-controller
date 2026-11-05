@@ -8,9 +8,10 @@ from pepper_mcp.robot.events import Event
 
 class LowBatteryReflex(Reflex):
     name = "low_battery"
-    description = "battery under 15 % → chest LED turns orange and Pepper says it needs charging"
+    description = ("battery under 15 % → chest LED turns orange; optionally say params.phrase (off by "
+                   "default: Gemini gets battery.low and says it in its own voice)")
     triggers = ("battery.low",)
-    params: dict[str, Any] = {"phrase": "My battery is getting low, I should charge soon."}
+    params: dict[str, Any] = {"phrase": ""}
     cooldown_s = 600.0
 
     def react(self, event: Event) -> Any:

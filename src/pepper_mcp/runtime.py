@@ -151,6 +151,7 @@ class Runtime:
             self._optional("wake up / posture", lambda: self.motion.prepare("StandInit"))
         self._optional("base safety distances",
                        lambda: self.motion.set_security_distances(s.safety_front_m, s.safety_side_m))
+        self._optional("push recovery off", self.motion.disable_push_recovery)
         self.motion.start()
         if self.motion.hatch_open():
             self._warn(f"{HATCH_OPEN}: Pepper can't drive, turn or follow")

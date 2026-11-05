@@ -65,8 +65,9 @@ class Settings:
     # --- robot behaviour on startup --------------------------------------
     #: "disable" puts autonomous life off so our motions are not fought; "keep" leaves it
     autonomous_life: str = field(default_factory=lambda: _env("AUTONOMOUS_LIFE", "disable") or "")
-    #: liveliness preset applied at start: off | calm | lively
-    liveliness: str = field(default_factory=lambda: _env("LIVELINESS", "lively") or "lively")
+    #: liveliness preset applied at start: off | calm | lively. "calm" keeps NAOqi's
+    #: BasicAwareness off so it does not steer the head against the attention reflex and Gemini.
+    liveliness: str = field(default_factory=lambda: _env("LIVELINESS", "calm") or "calm")
     wake_up: bool = field(default_factory=lambda: _env_bool("WAKE_UP", True))
     language: str = field(default_factory=lambda: _env("LANGUAGE", "German") or "German")
     #: base safety bubble in metres. NAOqi's 0.4 m front bubble blocks almost every move indoors

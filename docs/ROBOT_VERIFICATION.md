@@ -93,6 +93,13 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
 * NAOqi's default security distances (0.4 m / 0.1 m) abort most indoor base moves with
   `ALMotion/MoveFailed` → the server lowers them to 0.15 / 0.05 at start and reports aborted
   moves as `motion.blocked`.
+* A push makes ALMotion's push recovery play `push_recovery_*.wav` ("ouch") through the speakers,
+  over Gemini's voice; only `libmotion.so` references those files. `setPushRecoveryEnabled(False)`
+  raises "…without first enabling the disactivation…" until *Permit deactivation of the safety
+  reflexes* is ticked on the robot page (Settings → Advanced; it was off on 2026-11-05) → the server
+  turns it off at start when allowed (warns otherwise) and restores it at shutdown.
+* `ALLiveliness` (the touch-reflex service in `liveliness/`) is not registered on this robot, and
+  ALDialog has no topics loaded: neither reacts on its own.
 * An open charging hatch (`Platform/ILS` = 1) locks the wheels and every base move fails with
   `ALMotion/MoveFailed` cause "Safety", the same cause as an obstacle; the lasers showed nothing
   closer than 0.43 m. On 2026-11-05 this made "turn 180" and follow-me do nothing until the flap

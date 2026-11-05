@@ -19,6 +19,8 @@ class GreetReflex(Reflex):
     params: dict[str, Any] = {"phrase": "", "gesture": "wave",
                               "max_distance_m": 2.5, "quiet_period_s": 20.0}
     cooldown_s = 8.0
+    # Gemini gets person.appeared too and greets on its own; an automatic wave on top doubles it.
+    enabled_by_default = False
 
     def __init__(self, rt: Any):
         super().__init__(rt)

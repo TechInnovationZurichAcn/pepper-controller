@@ -265,8 +265,12 @@ Built-in reflexes: `attention` (eyes cyan while a person talks, purple until Pep
 to neutral after 8 s without an answer), white while Pepper talks; the head turns toward the
 person talking, driven by the `speech.*` events from Gemini's transcription; Pepper's own voice is
 never taken for a speaker),
-`high_five` (raised hand → arm up, wait for touch, celebrate), `greet` (new person
-→ raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
+`high_five` (raised hand → arm up, wait for touch, celebrate; silent unless `params.phrase` /
+`success_phrase` are set), `greet` (**off by default**, Gemini greets on its own; new person
+→ raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture),
+`low_battery` (chest LED orange; speaks only if `params.phrase` is set, Gemini gets `battery.low`).
+No reflex or built-in gesture speaks in NAOqi's voice by default, so nothing talks over Gemini;
+`sixty_seven` only chants "six seven" with `params.speak=true`.
 
 ---
 

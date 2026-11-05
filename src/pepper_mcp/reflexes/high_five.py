@@ -11,9 +11,10 @@ from pepper_mcp.robot.events import Event
 class HighFiveReflex(Reflex):
     name = "high_five"
     description = ("when a person waves or raises a hand (ALWavingDetection or laptop vision), raise the "
-                   "right hand, say a short phrase, wait for the hand touch and celebrate")
+                   "right hand, wait for the hand touch and celebrate; silent by default so Gemini does the "
+                   "talking (set params.phrase / success_phrase for NAOqi speech)")
     triggers = ("person.waving", "gesture.hand_raised")
-    params: dict[str, Any] = {"phrase": "High five!", "success_phrase": "Yeah!", "miss_phrase": "",
+    params: dict[str, Any] = {"phrase": "", "success_phrase": "", "miss_phrase": "",
                               "wait_s": 3.5, "max_distance_m": 1.6, "announce": True}
     cooldown_s = 6.0
 
