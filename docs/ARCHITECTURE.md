@@ -58,13 +58,26 @@ src/pepper_mcp/
     ssh.py          password SSH to the robot (SSH_ASKPASS), shared by uploads and the relay
     fake.py         in-memory fake NAOqi (tests, `--fake` dev mode)
   reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery)
-  tools/            MCP tool modules, one per domain, auto-registered
+  tools/            MCP tool modules, one per domain, auto-registered (_common.py: @tool decorator,
+                    READ_ONLY / ACTION / MOVES_ROBOT annotations, error mapping)
+  games/            tic-tac-toe engine + the tablet page it serves (tictactoe.py / .html)
+  assets/           files for the tablet and speakers (67 GIF + page, circus music)
   preview.py        optional HTTP side channel: MJPEG, live WAV, SSE events, dashboard API
   dashboard.py      dashboard state snapshot + whitelisted actions (dashboard.html = page)
   verify.py         `pepper-mcp-verify`: checklist run against the real robot
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
   gemini_live.py    `pepper-mcp-gemini`: Gemini Live speech-to-speech agent (see 2.2)
+persona.txt         Gemini's system instruction (read at every start)
+vocabulary.txt      words that bias Gemini's input transcription
 ```
+
+Start-up order (`Runtime.start`): connect → ALMemory watcher → disable autonomous life → wake up
+(`StandInit`) → base security distances → push recovery off → motion watchdog → liveliness preset →
+TTS worker and language → perception → top camera → microphone → reflexes → preview server →
+tablet relay → `server.started`. Every step after the connection goes through `_optional`, so a
+missing service logs `<feature> disabled: …` (also listed in `robot_status.warnings`) and the rest
+starts anyway. `Runtime.stop` runs the reverse and ends by restoring autonomous life and the
+NAOqi motion defaults.
 
 ### 2.2 Gemini Live agent
 
@@ -94,22 +107,27 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   to answer. Failures are always `WHEN_IDLE`.
   A blocking call ends the model's turn and the turn after its result is where Gemini filled
   the air with "wave" or "no speech". Queries stay blocking because the answer depends on them.
-  Tool calls run as tasks off the receive loop so the voice keeps flowing. Models without async
-  function calling (`gemini-3.1-flash-live*`) get plain blocking declarations.
+  Tool calls run as tasks off the receive loop so the voice keeps flowing; each call times out
+  after 20 s (`TOOL_TIMEOUT_S`) and the error goes back to the model. `wait` arguments are removed
+  from every schema. Models without async function calling (`gemini-3.1-flash-live*`) get plain
+  blocking declarations.
 - **Hearing:** input transcription gets the default language plus English as `language_codes`
   hints and the phrases in `vocabulary.txt` as `custom_vocabulary`. Without hints it
   auto-detects, which on Pepper's noisy mic drifts into the wrong language. It only feeds the
   transcript and the `speech.*` events; the model listens to the audio itself and replies in
   any language. Turn detection keeps 300 ms before speech and waits for 800 ms of silence, so
-  word onsets survive and short pauses don't split a sentence.
+  word onsets survive and short pauses don't split a sentence. Proactive audio is on, so the model
+  may stay silent when speech in the room is not meant for it.
 - **Speech filter:** native audio speaks whatever the model generates, including placeholders.
   `SpeechFilter` holds the first audio of each turn until the output transcript (always on)
   shows real words, usually the first fragment. A turn that is only a marker (`<no speech>`),
   a placeholder ("no speech") or a tool/gesture name ("wave") never reaches the speakers;
   held audio is released after 0.8 s at the latest.
-- **Events:** a bus subscriber turns touch, people, `motion.blocked`, failed tasks (successful
-  ones are dropped: the silent tool result already covered them) and high-five
-  results into `[robot event]` text notes; they are held back while Pepper is talking. Other
+- **Events:** a bus subscriber turns `FORWARDED_EVENTS` into `[robot event]` text notes: people
+  appearing, leaving (if they stayed ≥ 3 s) and waving, `touch.start`, high-five results, failed tasks (successful ones
+  are dropped: the silent tool result already covered them), `motion.blocked`, `follow.lost/found`,
+  `robot.fell`, `battery.low`, `nav.status` and the tic-tac-toe `game.*` events. They are held back
+  while Pepper is making sound and sent together afterwards (table in `MCP_ENDPOINTS.md` §4). Other
   `reflex.completed` events are dropped: the body already reacted, and every note makes Gemini
   take a turn, which it would spend narrating the reflex. The persona forbids narrating tools,
   gestures or sensed events.
@@ -160,9 +178,9 @@ the server.
 7. **Camera frames are grabbed continuously, encoded lazily.** A grabber thread per
    camera keeps the newest RGB frame; JPEG encoding happens once per distinct frame on
    first request (snapshot tool, resource, MJPEG preview share the cache).
-8. **Velocity watchdog.** `move()` re-sends `moveToward` and stops the base when the
-   requested duration elapses or the connection drops, so an LLM that forgets to stop
-   cannot drive Pepper into a wall.
+8. **Velocity watchdog.** `move()` only sets a velocity and a deadline (≤ 5 s); the
+   `motion-watchdog` thread re-sends `moveToward` while it lasts and stops the base when it
+   elapses, so an LLM that forgets to stop cannot drive Pepper into a wall.
 9. **Reflexes are plain event subscribers** running on the EventBus thread pool.
     They publish `reflex.triggered/completed` so the LLM stays informed and can disable
     them with `set_reflex`.
@@ -176,9 +194,14 @@ the server.
 | qi network threads | `processRemote`, signal callbacks → hand off immediately to queues |
 | `speech-tts` | drains the TTS queue |
 | asyncio loop (`gemini_live`) | Live session send/receive loops, tool-call tasks, `[robot event]` notes |
+| `gemini-voice` | Gemini's voice → `SpeakerStream` (prebuffer, pacing, `tts.started/finished`) |
 | `camera-<id>` | `getImageRemote` loop |
 | `memory-poll` | polled ALMemory keys |
-| `watchdog` | base velocity expiry, connection health |
+| `motion-watchdog` | base velocity expiry (stops the base when a `move` duration ends) and `moveToward` keep-alive |
+| `task-<id>` | long actions (gestures, animations, moves) registered in `TaskRegistry` |
+| `follow`, `attention-look` | follow-person loop; attention reflex head turns |
+| `tablet` | serialised `ALTabletService` calls (`showWebview` can block for seconds) |
+| `preview-http`, `tablet-relay-*` | dashboard HTTP server; SSH relay process I/O |
 
 Shared state is protected by locks or passed through `queue.Queue`; the EventBus is the
 only cross-thread fan-out point and is thread-safe.
@@ -224,8 +247,10 @@ only cross-thread fan-out point and is thread-safe.
 ## 7. Verification plan
 
 Offline (this repository, no robot): `pytest` runs the server against `robot/fake.py`,
-covering tool registration, event bus wake-ups, gesture limits, task lifecycle, the attention reflex, motion failure reporting and
-the in-process MCP client.
+covering tool registration, event bus wake-ups, gesture limits, task lifecycle, the attention
+reflex, motion failure reporting, the dashboard and its access checks, the tablet relay,
+tic-tac-toe, and the Gemini bridge helpers (`EchoGate`, `SpeechFilter`, tool declarations, event
+notes) through the in-process MCP client. No test talks to Gemini.
 
 On the robot: `pepper-mcp-verify --ip <PEPPER_IP>` walks a checklist (connect,
 services, TTS, animated speech, camera frame, microphone callback rate, ALMemory

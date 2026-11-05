@@ -1,5 +1,5 @@
-"""Builds the MCP server: lifespan owns the Runtime, tool modules register themselves,
-resources expose the live state, prompts teach the LLM how to be a good robot."""
+"""Builds the MCP server: lifespan owns the Runtime, tool modules register themselves and
+resources expose the live state. There are no prompts; Gemini's instructions live in persona.txt."""
 
 from __future__ import annotations
 

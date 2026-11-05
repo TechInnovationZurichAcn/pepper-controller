@@ -13,7 +13,7 @@ Everything is the robot's own hardware; nothing on the laptop is used. Pepper's 
 to its speakers and there is no echo cancellation, so the mic is muted while Pepper makes sound
 (Gemini's voice, NAOqi speech from reflexes, gestures with sound effects).
 
-Requires ``pip install 'pepper-mcp[gemini]'`` and a Gemini API key in ``GEMINI_LIVE_KEY``
+Requires the ``robot`` extra (``qi``) for real hardware and a Gemini API key in ``GEMINI_LIVE_KEY``
 (environment or a ``.env`` file in the working directory).
 """
 

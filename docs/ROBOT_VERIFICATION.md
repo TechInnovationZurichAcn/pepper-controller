@@ -1,9 +1,9 @@
 # Verifying Pepper MCP on the real robot
 
-The code in this branch was developed and tested against an in-memory fake of NAOqi
-(`pepper_mcp/robot/fake.py`) plus offline tests of the `qi` library mechanics
-(futures, `registerService`, signals). The checklist below confirms the assumptions
-that can only be proven on hardware. Run it once per robot/firmware.
+The test suite runs against an in-memory fake of NAOqi (`pepper_mcp/robot/fake.py`). The
+checklist below confirms the assumptions that can only be proven on hardware; section 3 lists
+what it found on our robot (NAOqi 2.5.10.7) and how the code handles it. Run it once per
+robot/firmware, and again whenever something behaves differently from the fake.
 
 ## 0. Environment
 
@@ -62,7 +62,15 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
    still on (`get_safety` → `collision_protection_arms`). Then put the arms in odd poses
    (`arm_pose` left `hug`, right `high_five`) and play `arms_down`: both arms must end fully
    down along the sides, forearms not twisted inward.
-5. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
+5. Touch the head: the eyes flash green and the head tilts (`touch_reaction`); Gemini may answer.
+6. Ask Pepper to play tic-tac-toe: the board must appear on the tablet within a few seconds and a
+   tap on a square must be answered by Pepper's move. A blank white page means the tablet relay
+   is not running (section 3, "The tablet is not on the LAN"); `robot_capabilities` →
+   `features.tablet_url` shows the relay address when it is up.
+7. Ask Pepper to turn around: the base must turn. If it says the charging hatch is open, close
+   the flap on the lower back.
+8. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
+   The log must end without errors and NAOqi's safety distances are back at 0.4 / 0.1 m.
 
 ## 3. Known firmware quirks handled in code
 

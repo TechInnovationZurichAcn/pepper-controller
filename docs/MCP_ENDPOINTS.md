@@ -1,23 +1,41 @@
 # Pepper MCP – endpoint inventory
 
-This is the complete list of what the MCP server exposes to the LLM, derived from
-every robot feature the repository already proved on the real Pepper (NAOqi
-2.5.10.7, `main` branch teleop code) plus the NAOqi 2.5 services needed for a
-lively, real-time conversation partner.
+This is the complete list of what the MCP server exposes to the LLM: every robot feature the
+`main` branch teleop already used on the real Pepper (NAOqi 2.5.10.7) plus the NAOqi 2.5 services
+needed for a lively, real-time conversation partner.
 
-**Status:** all tools and resources listed here are implemented in `src/pepper_mcp/tools/*` and
-exercised against the in-memory fake robot (`pytest`: 107 tools, 10 resources (one of them a
-template), no prompts). They run inside `pepper-mcp-gemini`, which offers 94 of the tools to Gemini
-Live. The 13 marked † are not offered (`EXCLUDED_TOOLS` in `src/pepper_mcp/gemini_live.py`).
-Hardware behaviour still has to be confirmed once with `pepper-mcp-verify` – see
-`docs/ROBOT_VERIFICATION.md`.
+**Status:** 107 tools and 10 resources (one of them a URI template), no prompts, all implemented
+in `src/pepper_mcp/tools/*` and `src/pepper_mcp/server.py` and covered by `pytest` against the
+in-memory fake robot. They run inside `pepper-mcp-gemini`, which offers 94 of the tools to Gemini
+Live; the 13 marked † are not offered (`EXCLUDED_TOOLS` in `src/pepper_mcp/gemini_live.py`). The
+tables list every argument with its default; the authoritative schema is the tool's signature.
+Firmware-specific behaviour is checked with `pepper-mcp-verify` (see
+`docs/ROBOT_VERIFICATION.md`).
+
+To print the live inventory yourself (fake robot, no hardware, no API key):
+
+```bash
+python - <<'PY'
+import asyncio
+from mcp.client import Client
+from pepper_mcp.config import Settings
+from pepper_mcp.server import create_server
+async def main():
+    s = Settings(); s.fake = True
+    async with Client(create_server(s)) as c:
+        for t in (await c.list_tools()).tools:
+            print(t.name, list((t.input_schema or {}).get("properties", {})))
+asyncio.run(main())
+PY
+```
 
 Legend – **Source**: where the capability comes from.
 `main` = already used by the teleop code on `main`; `naoqi` = NAOqi 2.5 service not
 used before; `laptop` = computed on the laptop side by this server.
 
 Every tool is non-blocking unless it has a `wait` flag. Long actions return a
-`task_id`; completion arrives as a `task.finished` event (see **Events**).
+`task_id`; completion arrives as a `task.finished` event (see **Events**). Gemini never sees the
+`wait` argument: the bridge strips it from every schema so a call can't freeze the conversation.
 
 ---
 
@@ -78,11 +96,11 @@ New capabilities added for real-time interaction (not on `main`):
 | `list_services` | – | NAOqi service names | main |
 | `wake_up` / `rest` | – | ok | main |
 | `get_battery` | – | charge %, charging flag | naoqi |
-| `set_liveliness` | `preset: off\|calm\|lively`, optional overrides | applied settings | main/naoqi |
+| `set_liveliness` | `preset: off\|calm\|lively`, optional overrides `basic_awareness`, `background_movement`, `listening_movement`, `speaking_movement`, `blinking` | applied settings | main/naoqi |
 | `set_autonomous_ability` | `ability: BasicAwareness\|BackgroundMovement\|ListeningMovement\|SpeakingMovement\|AutonomousBlinking`, `enabled` | ok | main |
-| `configure_awareness` | `engagement_mode?`, `tracking_mode?`, `engage_person_id?` | BasicAwareness state | naoqi |
-| `list_behaviors` | `filter?` | installed Choregraphe behaviours | main |
-| `run_behavior` / `stop_behavior` | `name`, `wait?` | task id / ok | main |
+| `configure_awareness` | `engagement_mode?: Unengaged\|SemiEngaged\|FullyEngaged`, `tracking_mode?: Head\|BodyRotation\|WholeBody\|MoveContextually`, `engage_person_id?` | BasicAwareness state | naoqi |
+| `list_behaviors` | `filter?`, `include_animations=false` | installed Choregraphe behaviours | main |
+| `run_behavior` / `stop_behavior` | `name`, `wait=false` / `name?` (all running if omitted) | task id / ok | main |
 | `get_volume` / `set_volume` | `level 0-100` | level | main |
 
 ### 2.2 Speech (output)
@@ -103,8 +121,8 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 | Tool | Arguments | Returns |
 |---|---|---|
 | `mic_level` | – | the head mic in use, per-mic energies, RMS level, callback rate, age of the last buffer |
-| `record_clip` † | `seconds (≤10)` | WAV audio content (16 kHz mono) |
-| `recognize_keywords` † | `words[]`, `timeout_s`, `word_spotting=True` | the recognised word + confidence (on-robot `ALSpeechRecognition`) |
+| `record_clip` † | `seconds=3 (≤10)` | WAV audio content (16 kHz mono) |
+| `recognize_keywords` † | `words[]`, `timeout_s=8`, `word_spotting=True` | the recognised word + confidence (on-robot `ALSpeechRecognition`) |
 | `start_builtin_dialog` / `stop_builtin_dialog` † | `qichat_topic` | ok (offline QiChat; exclusive with `recognize_keywords`) |
 
 There is no free-speech tool any more: Gemini Live hears the microphone stream itself
@@ -114,24 +132,25 @@ There is no free-speech tool any more: Gemini Live hears the microphone stream i
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `move` | `vx, vy, vtheta ∈ [-1,1]`, `duration_s ≤ 5` | ok (velocity, auto-stops when the duration ends – safety watchdog) |
-| `move_to` | `x_m, y_m, theta_deg`, `wait=False` | task id (odometry-based `moveTo`); result reports the distance actually moved, `ok=false` + reason if NAOqi stopped it |
+| `move` | `vx, vy, vtheta ∈ [-1,1]` (default 0), `duration_s=1 (≤ 5)` | ok (velocity, auto-stops when the duration ends – safety watchdog) |
+| `move_to` | `x_m, y_m, theta_deg` (default 0), `wait=False` | task id (odometry-based `moveTo`); result reports the distance actually moved, `ok=false` + reason if NAOqi stopped it |
 | `turn` | `degrees` (left positive), `wait=False` | task id; result reports the angle actually turned |
 | `stop_motion` | – | ok (stops base, animations, tracker, navigation) |
-| `go_to_posture` | `name: StandInit\|Stand\|StandZero\|Crouch\|Sit?`, `speed` | ok |
-| `look` | `yaw_deg`, `pitch_deg`, `speed=0.3` | ok |
-| `look_toward` | `direction: left\|right\|up\|down\|center\|slightly_left…` | ok |
+| `go_to_posture` | `name: StandInit\|Stand\|StandZero\|Crouch` (default `StandInit`), `speed=0.6`, `wait=False` | ok |
+| `look` | `yaw_deg`, `pitch_deg=0`, `speed=0.3` | ok |
+| `look_toward` | `direction: left\|right\|slightly_left\|slightly_right\|up\|down\|center\|up_left\|up_right\|down_left\|down_right`, `speed=0.3` | ok |
 | `look_at_person` | `person_id?` (nearest if omitted) | ok |
-| `look_at_point` / `point_at` | `x,y,z`, `frame: robot\|world`, `effector?` | ok |
+| `look_at_point` | `x, y, z=1.2`, `frame: robot\|world\|torso`, `speed=0.5`, `whole_body=False` | ok |
+| `point_at` | `x, y, z=1.0`, `effector: RArm\|LArm\|Arms`, `frame: robot\|world\|torso`, `speed=0.5` | ok |
 | `get_joint_angles` | `names[]?` | angles (rad + deg) |
 | `move_joint` | `joint` (enum of all 17 joints), `degrees`, `relative=false`, `speed=0.3` | `{joint, degrees, clamped?}`; hands take 0–100 % open → `{joint, open_percent}` |
-| `set_joint_angles` | `angles: {joint: deg}`, `speed`, `wait` | ok (clamped to safe limits) |
+| `set_joint_angles` | `angles: {joint: deg}`, `speed=0.3` | ok (clamped to safe limits) |
 | `list_joints` | – | names, limits, descriptions |
-| `arm_pose` | `side: left\|right\|both`, `pose: down\|up\|forward\|out\|hug\|wave_ready` | ok |
+| `arm_pose` | `side: left\|right\|both`, `pose: down\|up\|forward\|out\|hug\|wave_ready\|high_five`, `speed=0.4` | ok |
 | `set_hands` | `left_open?`, `right_open?` | ok |
 | `get_pose` | – | odometry x, y, theta |
 | `set_safety` | `orthogonal_m?`, `tangential_m?`, `arm_collision_protection?`, `move_collision_protection?` | applied values (server default 0.15 / 0.05 m, NAOqi default 0.4 / 0.1 m) |
-| `set_body_lean` | `hip_pitch_deg`, `hip_roll_deg`, `knee_pitch_deg`, `speed` | ok (expressive lean / crouch) |
+| `set_body_lean` | `hip_pitch_deg`, `hip_roll_deg`, `knee_pitch_deg` (default 0), `speed=0.2` | ok (expressive lean / crouch) |
 
 `move`, `move_to`, `turn` and `follow_person` fail at once with "charging hatch is open" when
 the flap over the charger socket is open (`Device/SubDeviceList/Platform/ILS/Sensor/Value` = 1):
@@ -146,15 +165,16 @@ so do the joint tools.
 | Tool | Arguments | Returns |
 |---|---|---|
 | `play_animation` | `name` (full path or tag such as `hello`, `yes`, `thinking`), `wait=False` | task id |
-| `list_animations` | `filter?`, `category?` | installed animation paths (discovered live from `ALBehaviorManager`, falls back to the curated list) |
-| `play_gesture` | `name`, `wait=False`, `params?` | task id |
+| `list_animations` | `filter?`, `category?`, `limit=80` | installed animation paths (discovered live from `ALBehaviorManager`, falls back to the curated list) |
+| `play_gesture` | `name`, `wait=False`, `params?` (gesture-specific, e.g. `sixty_seven` `{speak: true}`) | task id |
 | `list_gestures` | – | built-in + user-defined gestures with descriptions |
-| `define_gesture` | `name`, `description`, `keyframes: [{t_s, joints:{name: deg}}]`, `return_to_rest`, `speech?` | ok (available immediately in `play_gesture`) |
+| `define_gesture` | `name`, `description`, `keyframes: [{t_s, joints:{name: deg}}]`, `return_to_rest=True`, `speech?` | ok (available immediately in `play_gesture`) |
 | `remove_gesture` | `name` | ok (user-defined gestures only) |
 | `stop_animation` | – | ok |
 
-Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
-`hug_open`, `point_forward`, `bow`, `sixty_seven`, `clown_dance`.
+Built-in gestures (`robot/gestures.py`): `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
+`hug_open`, `point_forward`, `bow`, `arms_down`, `sixty_seven` (67 meme, GIF on the tablet),
+`clown_dance` (~20 s whole-body dance to looped circus music).
 
 ### 2.6 Perception
 
@@ -172,15 +192,15 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | Tool | Arguments | Returns |
 |---|---|---|
 | `camera_snapshot` | `camera: top\|bottom\|depth`, `max_width=640`, `quality=80` | JPEG image content (+ timestamp, age ms) |
-| `camera_stream` † | `camera`, `enabled`, `fps`, `resolution: qvga\|vga` | stream state |
+| `camera_stream` † | `camera`, `enabled=True`, `fps?`, `resolution?: qqvga\|qvga\|vga` | stream state |
 | `camera_status` | – | per camera: running, fps achieved, last frame age |
 
 ### 2.8 Audio output
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `play_audio` | `source` (robot path or http(s) URL), `volume`, `loop`, `wait` | task id |
-| `play_sine` | `frequency_hz`, `duration_s`, `volume` | ok |
+| `play_audio` | `source` (robot path or http(s) URL), `volume?`, `loop=False`, `wait=False` | task id |
+| `play_sine` | `frequency_hz=880`, `duration_s=0.3`, `volume=40` | ok |
 | `stop_audio` | – | ok |
 | `upload_audio` † | `local_path` | robot path (scp, needs the `nao` password) |
 
@@ -188,22 +208,22 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `set_leds` | `group: eyes\|chest\|ears\|shoulders\|all`, `color` (name or `#rrggbb`), `fade_s` | ok |
-| `leds_off` / `leds_reset` | `group` | ok |
-| `eyes_rotate` | `color`, `duration_s`, `speed_s` | ok |
-| `set_mood_lights` | `mood: neutral\|listening\|thinking\|speaking\|happy\|alert\|sad` | ok |
+| `set_leds` | `group: eyes\|left_eye\|right_eye\|chest\|ears\|shoulders\|all`, `color` (name or `#rrggbb`), `fade_s=0.3` | ok |
+| `leds_off` / `leds_reset` | `group=all` | ok |
+| `eyes_rotate` | `color=cyan`, `duration_s=2`, `speed_s=0.5` | ok |
+| `set_mood_lights` | `mood: neutral\|listening\|thinking\|speaking\|happy\|alert\|sad\|error` | ok |
 | `list_led_groups` | – | group names |
 
 ### 2.10 Tablet
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `tablet_show_text` | `text`, `background`, `color`, `font_px` | ok |
+| `tablet_show_text` | `text`, `background=#0b1020`, `color=#eaf2ff`, `font_px=64` | ok |
 | `tablet_show_url` / `tablet_show_image` / `tablet_show_html` | `url` / `url` / `html` | ok |
 | `tablet_hide` | – | ok |
 | `tablet_execute_js` | `script` | ok |
 | `tablet_play_video` / `tablet_stop_video` | `url` | ok |
-| `tablet_set_brightness` | `0-1` | ok |
+| `tablet_set_brightness` | `level 0-1` | ok |
 | `tablet_open_settings` | – | ok |
 | `tablet_status` | – | availability, what is shown, Wi-Fi status |
 
@@ -216,10 +236,18 @@ tablet …" until `tictactoe_stop`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `tictactoe_start` | `human_symbol: X\|O`, `human_first`, `difficulty: easy\|medium\|hard` | state + `display` (`interactive` with `--preview-port`, `static`, `unavailable`) + `hint` |
+| `tictactoe_start` | `human_symbol: X\|O` (default X), `human_first=True`, `difficulty: easy\|medium\|hard` (default medium) | state + `display` (`interactive` with `--preview-port`, `static`, `unavailable`) + `hint` |
 | `tictactoe_move` | `cell: 1-9` (the person's spoken move) | state after Pepper's reply |
 | `tictactoe_state` | – | board rows, turn, result, score |
 | `tictactoe_stop` | `hide_tablet` (default true) | final state; releases the tablet |
+
+How a game runs: `tictactoe_start` puts the board on the tablet. `display` says how:
+`interactive` = the page `/game/tictactoe` served by the preview server and loaded through the
+tablet relay; the person taps a square, the page posts the move to `/api/game/tictactoe/move`
+and Pepper answers about 0.7 s later on its own (Gemini only comments). The page's *Play again*
+button starts a new game (`game.started`). `static` = no preview server or relay: a numbered board
+is shown and moves come by voice through `tictactoe_move`. `unavailable` = no tablet; the board is
+described in words. Moves and results arrive as `game.*` events.
 
 ### 2.11 Tracking & following
 
@@ -236,23 +264,26 @@ re-target it) and resumed when tracking stops. The follow loop re-arms ALTracker
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `navigate_to` | `x_m, y_m`, `wait` | task id (obstacle-avoiding, robot frame) |
-| `explore_area` | `radius_m` | task id (minutes; `nav.status` events) |
+| `navigate_to` | `x_m`, `y_m=0`, `wait=False` | task id (obstacle-avoiding, robot frame) |
+| `explore_area` | `radius_m=5` | task id (minutes; `nav.status` events) |
 | `stop_navigation` | – | ok |
 | `navigation_status` | – | busy, status text, current map, localized |
-| `remember_spot` / `forget_spot` | `name?` | spot |
-| `go_to_spot` | `name` | task id |
+| `remember_spot` | `name?` | the saved spot (current position, needs localization) |
+| `forget_spot` | `name?` (omit = all spots of the current map) | remaining spots |
+| `go_to_spot` | `name`, `wait=False` | task id |
 | `list_spots` / `list_maps` | – | names |
-| `new_map` / `switch_map` / `load_map` | `name?` | map state |
+| `new_map` / `switch_map` | `name?` / `name` | map state |
+| `load_map` | – | reloads the current map and localizes at its origin |
 
 ### 2.13 Real-time events & tasks
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `wait_for_event` † | `types[]?`, `timeout_s=30`, `since_seq?` | events that arrived (returns as soon as the first matching event arrives) |
-| `get_events` | `since_seq?`, `types[]?`, `limit=50` | recent events |
+| `wait_for_event` † | `types[]?`, `timeout_s=30`, `since_seq?`, `ignore_internal=True` | events that arrived (returns as soon as the first matching event arrives) |
+| `get_events` | `since_seq=0`, `types[]?`, `limit=50` | recent events |
 | `list_event_types` | – | event catalogue with payload descriptions |
-| `list_tasks` / `wait_task` † / `cancel_task` | `task_id`, `timeout_s` | task state |
+| `list_tasks` | `limit=20` | running and recent tasks |
+| `wait_task` † / `cancel_task` | `task_id`, `timeout_s=30` (wait only) | task state |
 
 ### 2.14 Reflexes
 
@@ -261,14 +292,17 @@ re-target it) and resumed when tracking stops. The follow loop re-arms ALTracker
 | `list_reflexes` | – | name, enabled, description, parameters, trigger count |
 | `set_reflex` | `name`, `enabled?`, `params?` | new state |
 
-Built-in reflexes: `attention` (eyes cyan while a person talks, purple until Pepper answers (back
-to neutral after 8 s without an answer), white while Pepper talks; the head turns toward the
-person talking, driven by the `speech.*` events from Gemini's transcription; Pepper's own voice is
-never taken for a speaker),
-`high_five` (raised hand → arm up, wait for touch, celebrate; silent unless `params.phrase` /
-`success_phrase` are set), `greet` (**off by default**, Gemini greets on its own; new person
-→ raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture),
-`low_battery` (chest LED orange; speaks only if `params.phrase` is set, Gemini gets `battery.low`).
+Built-in reflexes (`src/pepper_mcp/reflexes/`). Switch them with `set_reflex`, the dashboard,
+`--reflexes-off a,b` or `--no-reflexes`; `list_reflexes` shows each one's `params`.
+
+| Reflex | Default | Trigger → reaction |
+|---|---|---|
+| `attention` | on | `speech.*` / `tts.*` / `sound.located` → eyes cyan while a person talks, purple until Pepper answers (back to neutral after 8 s), white while Pepper talks; the head turns toward whoever is talking. Pepper's own voice is never taken for a speaker |
+| `high_five` | on | `person.waving` → right arm up, wait for a touch on the back of the hand, celebrate. Silent unless `params.phrase` / `success_phrase` are set; the result goes to Gemini |
+| `greet` | **off** | `person.appeared` after nobody was around → the `wave` gesture (Gemini greets with words itself) |
+| `touch_reaction` | on | head touched → eyes flash green and the head tilts briefly; hand touched → that hand closes for a moment; bumpers ignored |
+| `low_battery` | on | battery below 15 % → chest LED orange; speaks only if `params.phrase` is set (Gemini gets `battery.low`) |
+
 No reflex or built-in gesture speaks in NAOqi's voice by default, so nothing talks over Gemini;
 `sixty_seven` only chants "six seven" with `params.speak=true`.
 
@@ -291,27 +325,38 @@ No reflex or built-in gesture speaks in NAOqi's voice by default, so nothing tal
 
 ## 4. Events (payload summary)
 
-| Type | Payload |
-|---|---|
-| `speech.started` | `{at}` a person started talking; published by the Gemini bridge from Gemini's input transcription, `at` backdated by ~0.8 s for the transcription delay |
-| `speech.final` | `{text, started_at, ended_at}` the utterance ended (Gemini started answering, the turn ended, or 1.5 s without new words) |
-| `speech.aborted` | `{reason, started_at}` the "utterance" had no words (e.g. only a noise marker) |
-| `speech.keyword` | `{word, confidence}` from `recognize_keywords` |
-| `tts.started` / `tts.finished` | `{utterance_id, text}`; NAOqi TTS (`say`, reflex phrases) and Gemini's voice (`utterance_id` `gemini-N`, empty `text`, one pair per reply) |
-| `person.appeared` / `person.left` | `{person_id, distance_m, bearing_deg}` |
-| `person.waving` | `{person_id, side: left\|right\|center}` |
-| `person.looking_at_robot` | `{person_id, looking}` |
-| `person.engaged` | `{person_id, zone}` |
-| `touch.start` / `touch.end` | `{sensor}` |
-| `sound.located` | `{azimuth_deg (robot frame, left positive), head_azimuth_deg, elevation_deg, energy, confidence}` |
-| `reflex.triggered` / `reflex.completed` | `{reflex, result}` e.g. high five `{touched: true}` |
-| `task.finished` | `{task_id, kind, ok, error?}` |
-| `nav.status` | `{status, busy}` |
-| `motion.blocked` | `{reason}` – NAOqi stopped a base move, usually an obstacle inside the safety distance |
-| `follow.lost` / `follow.found` | `{unseen_s}` / `{people}` – while following, nobody perceived for 3 s / someone seen again (both forwarded to Gemini) |
-| `robot.fell` / `robot.pushed` / `battery.low` / `hot_joint` | sensor payloads |
-| `tablet.touched` | `{x, y}` |
-| `connection.lost` / `connection.restored` | – |
+Everything that happens on the robot goes through one in-process `EventBus` (`robot/events.py`).
+`get_events`, `list_event_types`, `pepper://events`, the dashboard's event log and `/events` (SSE)
+all read it. The **→ Gemini** column marks the events the voice bridge forwards to Gemini as
+`[robot event] <type> {json}` notes (`FORWARDED_EVENTS` and `format_event` in `gemini_live.py`);
+the notes wait until Pepper has stopped making sound.
+
+| Type | Payload | → Gemini |
+|---|---|---|
+| `speech.started` | `{at}` a person started talking; published by the Gemini bridge from Gemini's input transcription, `at` backdated by ~0.8 s for the transcription delay | – |
+| `speech.final` | `{text, started_at, ended_at}` the utterance ended (Gemini started answering, the turn ended, or 1.5 s without new words) | – |
+| `speech.aborted` | `{reason, started_at}` the "utterance" had no words (e.g. only a noise marker) | – |
+| `speech.keyword` | `{word, confidence}` from `recognize_keywords` | – |
+| `tts.started` / `tts.finished` | `{utterance_id, text}`; NAOqi TTS (`say`, reflex phrases) and Gemini's voice (`utterance_id` `gemini-N`, empty `text`, one pair per reply) | – |
+| `person.appeared` / `person.left` | `{person_id, distance_m, bearing_deg, …}` / `{person_id, last_distance_m, present_for_s}` | `appeared` yes; `left` only if the person was there ≥ 3 s |
+| `person.waving` | `{person_id, side: left\|right\|center}` | yes |
+| `person.looking_at_robot` | `{person_id, looking}` | – |
+| `person.engaged` | `{person_id, zone}` | – |
+| `touch.start` / `touch.end` | `{sensor}` | `touch.start` |
+| `sound.located` | `{azimuth_deg (robot frame, left positive), head_azimuth_deg, elevation_deg, energy, confidence}` | – |
+| `reflex.triggered` / `reflex.completed` | `{reflex, result}` e.g. high five `{touched: true}` | `high_five` results only |
+| `task.finished` | `{task_id, kind, ok, error?}` | failures only (`ok=false`) |
+| `nav.status` | `{status, busy}` | yes |
+| `motion.blocked` | `{reason}` – NAOqi stopped a base move, usually an obstacle inside the safety distance | yes |
+| `follow.lost` / `follow.found` | `{unseen_s}` / `{people}` – while following, nobody perceived for 3 s / someone seen again (both forwarded to Gemini) | yes |
+| `robot.fell` / `robot.pushed` / `robot.hot_joint` / `battery.low` | sensor payloads (`hot_joint`: `{joints}`, `battery.low`: `{percent}` below 15 %) | `robot.fell`, `battery.low` |
+| `tablet.touched` | `{x, y}` | – |
+| `game.started` | `{game_id, human, pepper, first, difficulty}` – tic-tac-toe started (tool or the tablet's *Play again*) | yes |
+| `game.move` | `{player: human\|pepper, cell 1-9, rows, next}` | yes, except a human move Pepper is about to answer |
+| `game.over` | `{result: human\|pepper\|draw\|stopped, winning_cells, rows, score}` | yes |
+| `tracking.changed` | follow/track state changed | – |
+| `robot.stopped` | `stop_motion` (or the dashboard STOP) ran; what was stopped | – |
+| `server.started` | `{version, robot, startup_s}` | – |
 
 ## 5. Transports
 
@@ -319,9 +364,24 @@ There is no MCP network endpoint: no stdio, streamable-HTTP or SSE transport. `p
 runs the server in-process, and Gemini Live's function calls reach the tools through an in-memory
 MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a supported way to run it.
 
-* Side channel for humans and non-MCP consumers (optional, `--preview-port`):
-  `http://host:port/camera/top.mjpg` (live MJPEG), `/camera/top.jpg`,
-  `/audio.wav` (live 16 kHz PCM), `/events` (server-sent events), `/status`.
+* Side channel for humans and non-MCP consumers (optional, `--preview-port`, `preview.py`):
+
+  | Path | Method | What |
+  |---|---|---|
+  | `/` | GET | the control dashboard (`dashboard.html`) |
+  | `/api/state` | GET | dashboard state (see below) |
+  | `/api/action/<name>` | POST | dashboard actions (see below) |
+  | `/status` | GET | `robot_status` as JSON |
+  | `/events` | GET | server-sent events, one per bus event |
+  | `/camera/<top\|bottom\|depth>.mjpg` / `.jpg` | GET | live MJPEG stream / latest JPEG |
+  | `/audio.wav` | GET | live head-mic audio (16 kHz PCM) |
+  | `/assets/<file>` | GET | bundled files from `src/pepper_mcp/assets/` (67 GIF, circus music) for the tablet |
+  | `/game/tictactoe` | GET | the tic-tac-toe page shown on the tablet |
+  | `/api/game/tictactoe` | GET | game state |
+  | `/api/game/tictactoe/move` / `/new` | POST | a tapped cell `{cell}` / *Play again*; open to the LAN because the tablet is another device and a game move cannot move the robot (Host, JSON and Origin checks still apply) |
+
+  The tablet itself reaches these URLs through the TCP relay on Pepper's head
+  (`robot/tablet_relay.py`), never directly.
 * Dashboard at `/` on the same port: `GET /api/state` (status, reflexes, perception,
   abilities, cameras, volume, gestures, transcript; `control` says whether this client may act)
   and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,

@@ -12,12 +12,21 @@ an MCP tool server that runs inside the same process.
 * **Real-time by design** – the robot pushes audio and ALMemory events to the laptop. The
   microphone goes straight to Gemini Live and the voice comes back to the speakers; robot
   events reach it as short notes. Design notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-* **Reflexes** – high five when somebody raises a hand, a wave when someone shows up, a nod
-  when touched: sub-second reactions that run on the server without the LLM. All toggleable.
+* **Reflexes** – a high five when somebody raises a hand, eyes and head that follow whoever is
+  talking, a head tilt when touched: sub-second reactions that run on the server without the
+  LLM. All toggleable (a greeting wave exists too, off by default because Gemini greets).
 * **Works without a robot** – `--fake` runs the whole stack against an in-memory NAOqi so
   you can check the install first.
 
 This branch contains only the server and its voice agent. The keyboard teleop lives on `main`.
+
+**Contents:** [Quick start](#quick-start-laptop-and-robot-already-set-up) ·
+[Part 1 – Install on the laptop](#part-1--install-on-the-laptop-arch-or-ubuntu-no-robot-needed) ·
+[Part 2 – Bring up the robot](#part-2--bring-up-the-robot) ·
+[Configuration](#configuration) ·
+[Persona, language and vocabulary](#persona-language-and-vocabulary) ·
+[Project layout](#project-layout) · [Development](#development) ·
+[Troubleshooting](#troubleshooting)
 
 ---
 
@@ -45,7 +54,7 @@ translate the package names. `<PEPPER_IP>` stands for the robot's address (step 
 
 | Item | Notes |
 |---|---|
-| **x86_64** Linux laptop | `qi` (libqi-python, the NAOqi client) only ships Linux wheels for x86_64; ARM boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot |
+| **x86_64** Linux laptop | `qi` (libqi-python, the NAOqi client) ships Linux wheels for x86_64 only; ARM boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot. (PyPI also has a Python 3.12 wheel for Apple-silicon macOS; this guide does not cover or test it) |
 | Internet on the laptop | the LLM (Gemini Live) runs in the cloud |
 | A Gemini API key | free from [Google AI Studio](https://aistudio.google.com/apikey); needed by `pepper-mcp-gemini`, also with `--fake` (step 4) |
 | Pepper with NAOqi 2.5.x | charged (plug the charger into the back of the base; unplug it before driving) |
@@ -181,7 +190,7 @@ many hotel and office networks) break hearing even when `ping` works.
 **Option B – dedicated router for Pepper, laptop wired to it, internet from the laptop's
 normal Wi-Fi.** Use this with a new or offline router (no internet uplink needed). Pepper
 ends up on the router's Wi-Fi and the laptop reaches it over the Ethernet cable, while the
-laptop's Wi-Fi keeps carrying internet traffic (Gemini, MCP clients).
+laptop's Wi-Fi keeps carrying internet traffic (Gemini).
 
 ```
  internet ── venue Wi-Fi ── wlan ┐
@@ -299,9 +308,9 @@ export PEPPER_IP=<the IP Pepper said>
 pepper-mcp-gemini               # reads PEPPER_IP when --ip is omitted
 ```
 
-The firewall rule from step 10 only needs adding once: with `ufw`,
-`sudo ufw allow from 192.168.178.0/24` covers the whole FRITZ!Box subnet whatever IP Pepper
-gets. Unplug the cable when done.
+The firewall rule from step 10 only needs adding once if you allow the router's whole subnet:
+with `ufw`, `sudo ufw allow from 192.168.178.0/24` (the FRITZ!Box default subnet; use yours from
+`ip -br addr`) works whatever IP Pepper gets.
 
 **Option C – no router, Ethernet cable laptop ↔ Pepper.** Let the laptop hand out an
 address on the cable while Wi-Fi keeps the internet:
@@ -338,8 +347,9 @@ Use the first method that works:
    nmap -p 9559 --open 192.168.1.0/24
    ```
 
-Optional, so you can type it once per shell: `export PEPPER_IP=192.168.1.5` – every
-command below also reads `PEPPER_IP` when `--ip` is omitted.
+Optional, so you can type it once per shell: `export PEPPER_IP=192.168.1.5`.
+`pepper-mcp-gemini` reads `PEPPER_IP` when `--ip` is omitted; `pepper-mcp-verify` always needs
+`--ip` (`pepper-mcp-verify --ip "$PEPPER_IP"`).
 
 ### 9. Check the laptop can reach the robot
 
@@ -412,7 +422,8 @@ through the MCP tools in the same process: 94 of the 107 (`say`, the speech and 
 `recognize_keywords`, `wait_for_event` and the other blocking ones are left out, because Gemini
 is the voice and the ears). Actions run in the background while it keeps talking and report back
 silently, and turns that would only say "no speech" or a gesture name are kept off the speakers.
-Robot events (touch, people appearing, `motion.blocked`, failed tasks, high-five results) are
+Robot events (touch, people appearing, leaving or waving, `motion.blocked`, failed tasks,
+high-five results, losing the person it follows, a fall, low battery, tic-tac-toe moves) are
 passed to it as short notes; it reacts with its body and speaks only when a person would, without
 narrating what it sensed or which tool it used. Other reflexes (attention, touch) already
 moved the body and are not reported. Nothing but Gemini speaks: reflexes and gestures stay silent
@@ -420,9 +431,11 @@ in NAOqi's voice, the `greet` reflex is off (Gemini greets), BasicAwareness is o
 `calm`) and NAOqi's push recovery, which says "ouch" when Pepper is pushed, is turned off while
 the server runs. Nothing on the laptop is used except the network.
 
-Gemini-only flags, on top of the [Configuration](#configuration) table: `--model` (default
-`gemini-3.8-live`), `--voice` (`Kore`, `Puck`, `Charon`, …), `--persona`, `--no-video`,
-`--no-transcripts`. Pepper's mic sits next to its speakers and has no echo cancellation, so it is
+What Gemini says and how it behaves comes from [`persona.txt`](persona.txt): the shipped one is
+German and written for a specific event (children visiting an office), so **adapt it before you
+use Pepper elsewhere** (see [Persona, language and vocabulary](#persona-language-and-vocabulary)).
+Model, voice and the other Gemini options are in the [Configuration](#configuration) table.
+Pepper's mic sits next to its speakers and has no echo cancellation, so it is
 muted while Pepper makes any sound (Gemini's voice, NAOqi speech from reflexes, gestures with
 sounds) plus a short tail: talk after Pepper finishes; interrupting mid-sentence is not possible.
 The free API tier has no Google Search quota, so search is not enabled.
@@ -442,7 +455,9 @@ The free API tier has no Google Search quota, so search is not enabled.
    `[heard]` in the terminal and in the conversation panel, and Gemini answers through the speakers.
 3. Raise a hand facing the robot: `person.waving`, then the high-five reflex. Touch the
    back of its raised hand to finish it.
-4. Touch its head: a `touch.*` event and a nod.
+4. Touch its head: a `touch.start` event, the eyes flash green and the head tilts briefly.
+5. Ask it to play tic-tac-toe: the board appears on the tablet; tap a square and Pepper answers
+   with its own move.
 
 `Ctrl-C` stops it; on shutdown the server stops the base and restores motion defaults and
 autonomous life.
@@ -486,13 +501,30 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | – | `PEPPER_SSH_USER` / `PEPPER_SSH_PASSWORD` | `nao` / `pepper` | robot login for copying sounds and tablet assets (`scp`); never logged |
 | – | `PEPPER_MAP_STORE` | `pepper_maps.json` | where saved maps and spots are kept (relative to the working directory) |
 | `--log-level` | `PEPPER_LOG_LEVEL` | `INFO` | logs go to stderr |
+| – | `PEPPER_PREVIEW_HOST` | `0.0.0.0` | address the dashboard listens on (`127.0.0.1` = laptop only; the tablet relay then can't reach it) |
+| – | `PEPPER_WAKE_UP` | on | wake Pepper and go to `StandInit` at start |
+| – | `PEPPER_JPEG_QUALITY` | 80 | JPEG quality of camera frames (Gemini video, dashboard) |
+| – | `PEPPER_MEMORY_POLL_S` | 0.1 | poll period for ALMemory keys when push subscriptions fail (always on this robot) |
 
-`GEMINI_LIVE_KEY` (for `pepper-mcp-gemini`) is the only value read from `.env`.
+Options of `pepper-mcp-gemini` only (no environment variable):
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--model` | `gemini-3.8-live` | Gemini Live model; `gemini-3.1-flash-live*` models get blocking tool calls (no async function calling) |
+| `--voice` | `Kore` | prebuilt Gemini voice (`Puck`, `Charon`, …) |
+| `--persona` | `Pepper` | replaces `{name}` in `persona.txt` |
+| `--no-video` | off | don't stream the head camera (1 frame/s) to Gemini |
+| `--no-transcripts` | off | don't print `[heard]`/`[said]` lines and turn off input transcription (`[tool]` lines stay). The attention reflex then gets no `speech.*` events, so the eyes and head no longer react to people talking |
+
+`GEMINI_LIVE_KEY` is the only value read from `.env`; a key in `.env` wins over an exported one.
+Booleans in `PEPPER_*` variables accept `1`/`true`/`yes`/`on`, anything else is off.
 The variables of removed features (`PEPPER_STT*`, `PEPPER_VAD_*`, `PEPPER_BARGE_IN`,
 `PEPPER_LISTENING`, `PEPPER_ECHO_TAIL_MS`, `PEPPER_MCP_*`) are ignored, and
 `pepper-mcp-gemini` logs a warning if one is set, so delete them from old `.env` files.
 
 ## How the interaction loop works
+
+See also [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design.
 
 ```
    person talks ──▶ head mic (16 kHz) ──▶ Gemini Live (cloud) ──▶ voice ──▶ Pepper's speakers
@@ -501,15 +533,28 @@ The variables of removed features (`PEPPER_STT*`, `PEPPER_VAD_*`, `PEPPER_BARGE_
           ──▶ MCP tool (in-process) ──▶ robot;  robot events ──▶ short notes to Gemini
 ```
 
-Gemini's instructions (persona, speaking rules, safety) are in [`persona.txt`](persona.txt) in the
-repository root: edit it and restart `pepper-mcp-gemini`. `{language}` and `{name}` (the
-`--persona` value) are filled in; any other text, braces included, is sent as written.
+## Persona, language and vocabulary
+
+Gemini's instructions (who Pepper is, how it talks, how it uses its body, safety rules) are in
+[`persona.txt`](persona.txt) in the repository root. It is read at every start, so edit it and
+restart `pepper-mcp-gemini`. The shipped persona is German and made for one occasion (Swiss
+*Nationaler Zukunftstag*: children aged 10–12 visiting an office, questions about becoming a
+software developer). Keep its later paragraphs about the body, robot events and safety; they are
+what stops Gemini from narrating tool calls or pretending it moved when it didn't. The file is
+plain text; `{name}` (the `--persona` value) and `{language}` (`--language`) are replaced if you
+use them, any other text, braces included, is sent as written. The file must stay in the repo
+root: `pepper-mcp-gemini` looks for it next to `src/`, not in the current directory.
+
+`--language` (default `German`) sets NAOqi's TTS language and the first language hint for the
+input transcript (English is always the second). Gemini itself answers in whatever language it is
+spoken to and the persona says. Known names: German, English, French, Italian, Spanish, Dutch,
+Portuguese, Japanese, Chinese; any other value turns the transcription hint off.
+
 Names and words Pepper keeps mishearing go in [`vocabulary.txt`](vocabulary.txt) (one per line,
 `#` comments), which biases the input transcriber; restart to apply. That transcriber only writes
 the `[heard]` lines and the dashboard's Conversation card: Gemini answers from the audio itself.
 So a misheard `[heard]` line with a sensible reply is only a log problem; a wrong reply means
 Pepper really misheard, and the fix is usually standing closer (within about 1 m).
-`list_event_types` and `pepper://events/types` document every event.
 
 ## Project layout
 
@@ -524,8 +569,13 @@ src/pepper_mcp/
   preview.py    MJPEG / live audio / SSE side channel; verify.py
   gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
   dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
-docs/           MCP_ENDPOINTS.md, ARCHITECTURE.md, ROBOT_VERIFICATION.md
+docs/           MCP_ENDPOINTS.md (every tool/resource/event), ARCHITECTURE.md (design),
+                ROBOT_VERIFICATION.md (hardware checklist, firmware quirks)
 tests/          pytest suite against the fake robot
+persona.txt     Gemini's system instruction
+vocabulary.txt  transcription hints
+.env            GEMINI_LIVE_KEY (git-ignored, you create it)
+pepper_maps.json  saved maps and spots (git-ignored, written at runtime)
 ```
 
 Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new gesture →
@@ -536,9 +586,14 @@ Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new g
 
 ```bash
 uv pip install -e ".[all,dev]"
-pytest -q              # fake robot, no hardware
+pytest -q              # fake robot, no hardware, no API key
 ruff check src tests
+pepper-mcp-gemini --fake --preview-port 8765    # whole stack on the fake robot (needs the key)
 ```
+
+When you change a tool, flag, default or event, update the matching doc in the same change
+(`README.md` configuration, `docs/MCP_ENDPOINTS.md`). A robot module that starts calling a new
+NAOqi method needs it in `robot/fake.py` too, or the tests and `--fake` break.
 
 ## Troubleshooting
 
@@ -564,5 +619,5 @@ ruff check src tests
 | Pepper says "ouch" (NAOqi's voice) when pushed | log says `NAOqi refused to turn off push recovery`: open `http://<PEPPER_IP>/` → Settings → Advanced, tick *Permit deactivation of the safety reflexes*, restart `pepper-mcp-gemini`. This only permits turning reflexes off; the server turns off push recovery alone and turns it back on at shutdown |
 | Pepper hears itself | the mic is muted while Pepper makes sound, plus a 0.4 s tail: talk after it has finished speaking |
 | `GEMINI_LIVE_KEY is not set` | `.env` missing or you are not in the repo root: step 4 |
-| `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |
+| `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |
 | `pepper-mcp-gemini`: `ignoring PEPPER_…` warning | an old `.env` or shell still sets a removed variable: delete it (see Configuration) |
