@@ -20,8 +20,6 @@ dependencies = [
 [project.optional-dependencies]
 # Talking to a real robot (needs CPython <= 3.12, Linux x86_64 or macOS arm64 wheels exist).
 robot = ["qi>=3.1.5"]
-# Laptop-side pose / hand detection on camera frames (experimental).
-vision = ["mediapipe>=0.10", "opencv-python-headless>=4.9"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "anyio>=4"]
 all = ["pepper-mcp[robot]"]
 

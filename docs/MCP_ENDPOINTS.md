@@ -165,7 +165,7 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | `get_touch_state` | – | which tactile sensors are touched |
 | `get_sonar` | – | front/back distance (m) |
 | `get_sound_direction` | – | last located sound (azimuth, elevation, energy, age) |
-| `set_perception` | `people?, waving?, gaze?, engagement?, sound_localization?, face_detection?, hand_raise_vision?` | active extractors |
+| `set_perception` | `people?, waving?, gaze?, engagement?, sound_localization?, face_detection?, face_characteristics?` | active extractors |
 
 ### 2.7 Camera
 
@@ -302,7 +302,6 @@ No reflex or built-in gesture speaks in NAOqi's voice by default, so nothing tal
 | `person.waving` | `{person_id, side: left\|right\|center}` |
 | `person.looking_at_robot` | `{person_id, looking}` |
 | `person.engaged` | `{person_id, zone}` |
-| `gesture.hand_raised` | `{side, confidence}` (laptop vision, optional) |
 | `touch.start` / `touch.end` | `{sensor}` |
 | `sound.located` | `{azimuth_deg (robot frame, left positive), head_azimuth_deg, elevation_deg, energy, confidence}` |
 | `reflex.triggered` / `reflex.completed` | `{reflex, result}` e.g. high five `{touched: true}` |

@@ -18,7 +18,6 @@ EVENT_CATALOGUE: dict[str, str] = {
     "person.waving": "person waved / raised a hand {person_id, side}",
     "person.looking_at_robot": "gaze toward the robot changed {person_id, looking}",
     "person.engaged": "person entered the engagement zone / approached {person_id, zone, event}",
-    "gesture.hand_raised": "laptop vision saw a raised hand {side, confidence}",
     "touch.start": "a tactile sensor was touched {sensor, key}",
     "touch.end": "a tactile sensor was released {sensor, key}",
     "sound.located": "a loud sound with direction {azimuth_deg (robot frame, left positive), head_azimuth_deg, elevation_deg, confidence, energy}",

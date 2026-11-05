@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -30,9 +29,6 @@ HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.
 LOOK_DIRECTIONS = {"left": (45, 0), "right": (-45, 0), "up": (0, -25), "down": (0, 25), "center": (0, 0)}
 TRACK_TARGETS = ("face", "people", "sound")
 TRACK_MODES = ("head", "body_rotation", "whole_body", "move")
-
-# HTTP requests run on separate threads; starting/stopping the vision loop is check-then-act.
-_vision_lock = threading.Lock()
 
 
 class ActionError(ValueError):
@@ -72,9 +68,7 @@ def state(rt: Any) -> dict[str, Any]:
     out["reflexes"] = _safe("reflexes", rt.reflexes.list) if rt.reflexes else []
     out["perception"] = None
     if rt.perception is not None:
-        active = dict(rt.perception.active)
-        active["hand_raise_vision"] = rt.vision is not None
-        out["perception"] = active
+        out["perception"] = dict(rt.perception.active)
         out["touch"] = _safe("touch", rt.perception.touch_state)
     out["abilities"] = _safe("abilities", rt.awareness.abilities)
     out["cameras"] = _safe("cameras", rt.cameras.status) if rt.cameras else []
@@ -136,21 +130,12 @@ def _reflex(rt: Any, a: dict[str, Any]) -> Any:
 
 def _perception(rt: Any, a: dict[str, Any]) -> Any:
     perception = _need(rt.perception, "perception")
-    name = _choice(a, "name", set(EXTRACTORS) | {"hand_raise_vision"})
+    name = _choice(a, "name", set(EXTRACTORS))
     enabled = _bool(a, "enabled")
-    if name != "hand_raise_vision":
-        active = perception.set_extractor(name, enabled)
-        if enabled and not active:
-            raise ActionError(f"{name} could not be enabled (NAOqi service missing on this robot)")
-        return {name: active}
-    with _vision_lock:
-        if enabled and rt.vision is None:
-            _need(rt.cameras, "camera")
-            rt._start_vision()
-        elif not enabled and rt.vision is not None:
-            rt.vision.stop()
-            rt.vision = None
-        return {name: rt.vision is not None}
+    active = perception.set_extractor(name, enabled)
+    if enabled and not active:
+        raise ActionError(f"{name} could not be enabled (NAOqi service missing on this robot)")
+    return {name: active}
 
 
 def _tracking(rt: Any, a: dict[str, Any]) -> Any:

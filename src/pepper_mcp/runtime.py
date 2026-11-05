@@ -23,7 +23,7 @@ from pepper_mcp.robot.audio_in import MicrophoneStream
 from pepper_mcp.robot.audio_out import ASSETS_DIR, AudioOut
 from pepper_mcp.robot.awareness import Awareness
 from pepper_mcp.robot.camera import Cameras
-from pepper_mcp.robot.connection import RobotConnection, RobotError
+from pepper_mcp.robot.connection import RobotConnection
 from pepper_mcp.robot.events import EventBus, MemoryWatcher
 from pepper_mcp.robot.gestures import GestureContext, GestureRegistry
 from pepper_mcp.robot.leds import Leds
@@ -77,7 +77,6 @@ class Runtime:
         #: the conversation as the voice agent reports it: {"role": "user"|"robot", "text", "at"}
         self.transcript: deque[dict[str, Any]] = deque(maxlen=200)
         self.reflexes = None
-        self.vision = None
         self.preview = None
         #: forwards the head's tablet-side address to the preview server (see robot/tablet_relay.py)
         self.tablet_relay: TabletRelay | None = None
@@ -178,9 +177,6 @@ class Runtime:
         if s.reflexes_enabled:
             self._optional("reflexes", self._start_reflexes)
 
-        if s.hand_raise_vision and self.cameras is not None:
-            self._optional("hand-raise vision", self._start_vision)
-
         if s.preview_port:
             self._optional("preview server", self._start_preview)
 
@@ -207,15 +203,6 @@ class Runtime:
         off = {n.strip() for n in self.settings.reflexes_off.split(",") if n.strip()}
         self.reflexes.start(off)
 
-    def _start_vision(self) -> None:
-        from pepper_mcp.vision.hand_raise import FrameAnalyzerLoop, HandRaiseDetector
-
-        detector = HandRaiseDetector()
-        if not detector.available:
-            raise RobotError("mediapipe not installed (pip install 'pepper-mcp[vision]')")
-        self.vision = FrameAnalyzerLoop(self.cameras.get("top"), self.bus, [detector])
-        self.vision.start()
-
     def _start_preview(self) -> None:
         from pepper_mcp.preview import PreviewServer
 
@@ -237,7 +224,6 @@ class Runtime:
         log.info("shutting down")
         for label, fn in (
             ("reflexes", lambda: self.reflexes and self.reflexes.stop()),
-            ("vision", lambda: self.vision and self.vision.stop()),
             ("mic", lambda: self.mic and self.mic.close()),
             ("cameras", lambda: self.cameras and self.cameras.stop()),
             ("tracker", lambda: self.tracker and self.tracker.stop()),
@@ -315,7 +301,6 @@ class Runtime:
                 "navigation": self.navigator is not None,
                 "tracker": self.tracker is not None,
                 "reflexes": self.reflexes.active_names() if self.reflexes else [],
-                "hand_raise_vision": self.vision is not None,
                 "preview_url": self.preview.base_url if self.preview else None,
                 "tablet_url": self.tablet_relay.base_url if self.tablet_relay and self.tablet_relay.alive() else None,
                 "gestures": self.gestures.names(),

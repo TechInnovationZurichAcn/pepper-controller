@@ -57,8 +57,6 @@ src/pepper_mcp/
     tablet_relay.py TCP relay on the head so the tablet (not on the LAN) reaches the preview server
     ssh.py          password SSH to the robot (SSH_ASKPASS), shared by uploads and the relay
     fake.py         in-memory fake NAOqi (tests, `--fake` dev mode)
-  vision/
-    hand_raise.py   optional laptop-side pose detector (MediaPipe) → gesture.hand_raised
   reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery)
   tools/            MCP tool modules, one per domain, auto-registered
   preview.py        optional HTTP side channel: MJPEG, live WAV, SSE events, dashboard API

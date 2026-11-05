@@ -171,6 +171,13 @@ def test_perception_reports_failed_extractor(runtime, monkeypatch) -> None:  # t
         dashboard.run_action(runtime, "perception", {"name": "waving", "enabled": True})
 
 
+def test_perception_has_no_laptop_hand_raise_detector(runtime) -> None:  # type: ignore[no-untyped-def]
+    # hand raises come only from Pepper's own ALWavingDetection (person.waving)
+    with pytest.raises(dashboard.ActionError):
+        dashboard.run_action(runtime, "perception", {"name": "hand_raise_vision", "enabled": True})
+    assert "hand_raise_vision" not in dashboard.state(runtime)["perception"]
+
+
 def test_http_dashboard_state_and_action(preview) -> None:  # type: ignore[no-untyped-def]
     base, rt = preview
     with urllib.request.urlopen(base + "/", timeout=5) as r:

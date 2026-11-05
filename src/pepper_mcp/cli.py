@@ -24,7 +24,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-perception", dest="perception_enabled", action="store_false", default=None)
     p.add_argument("--no-reflexes", dest="reflexes_enabled", action="store_false", default=None)
     p.add_argument("--reflexes-off", help="comma separated reflex names to start disabled")
-    p.add_argument("--hand-raise-vision", action="store_true", default=None, help="laptop MediaPipe hand-raise detector")
     p.add_argument("--liveliness", choices=["off", "calm", "lively"], help="autonomous movement preset at start")
     p.add_argument("--keep-autonomous-life", dest="autonomous_life", action="store_const", const="keep",
                    help="do not disable NAOqi autonomous life at start")

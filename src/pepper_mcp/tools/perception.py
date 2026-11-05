@@ -40,22 +40,13 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
     @tool(mcp, ACTION)
     def set_perception(people: bool | None = None, waving: bool | None = None, gaze: bool | None = None,
                        engagement: bool | None = None, sound_localization: bool | None = None,
-                       face_detection: bool | None = None, face_characteristics: bool | None = None,
-                       hand_raise_vision: bool | None = None) -> dict[str, Any]:
-        """Enable/disable NAOqi perception extractors (each costs some robot CPU) and the optional
-        laptop hand-raise detector."""
+                       face_detection: bool | None = None,
+                       face_characteristics: bool | None = None) -> dict[str, Any]:
+        """Enable/disable NAOqi perception extractors (each costs some robot CPU)."""
         p = require(rt.perception, "perception")
         for name, value in {"people": people, "waving": waving, "gaze": gaze, "engagement": engagement,
                             "sound_localization": sound_localization, "face_detection": face_detection,
                             "face_characteristics": face_characteristics}.items():
             if value is not None:
                 p.set_extractor(name, value)
-        out = dict(p.active)
-        if hand_raise_vision is not None:
-            if hand_raise_vision and rt.vision is None:
-                rt._start_vision()
-            elif not hand_raise_vision and rt.vision is not None:
-                rt.vision.stop()
-                rt.vision = None
-        out["hand_raise_vision"] = rt.vision is not None
-        return out
+        return dict(p.active)

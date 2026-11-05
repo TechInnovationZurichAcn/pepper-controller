@@ -95,7 +95,6 @@ class Settings:
     reflexes_enabled: bool = field(default_factory=lambda: _env_bool("REFLEXES", True))
     #: comma separated reflex names to start disabled, e.g. "greet,touch_reaction"
     reflexes_off: str = field(default_factory=lambda: _env("REFLEXES_OFF", "") or "")
-    hand_raise_vision: bool = field(default_factory=lambda: _env_bool("HAND_RAISE_VISION", False))
 
     # --- misc -------------------------------------------------------------
     map_store: str = field(default_factory=lambda: _env("MAP_STORE", "pepper_maps.json") or "")

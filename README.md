@@ -97,8 +97,7 @@ source .venv/bin/activate
 uv pip install -e ".[all,dev]"       # qi + google-genai + pytest/ruff
 ```
 
-Extras: `robot` (`qi`, needed for real hardware), `all` (= `robot`), `vision` (MediaPipe
-hand-raise detector, optional), `dev` (tests, ruff). `google-genai` is a core dependency.
+Extras: `robot` (`qi`, needed for real hardware), `all` (= `robot`), `dev` (tests, ruff). `google-genai` is a core dependency.
 
 **Run every command from the repo root with the venv active** (`source .venv/bin/activate`
 in each new terminal, or call `.venv/bin/pepper-mcp-gemini` directly). The `.env` key file and
@@ -480,7 +479,6 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | `--safety-front` / `--safety-side` | `PEPPER_SAFETY_FRONT_M` / `PEPPER_SAFETY_SIDE_M` | 0.15 / 0.05 | base safety distances in m (NAOqi: 0.4 / 0.1, which blocks most indoor moves) |
 | `--reflexes-off a,b` / `--no-reflexes` | `PEPPER_REFLEXES_OFF` / `PEPPER_REFLEXES` | all on | disable reflexes |
 | `--no-audio` / `--no-camera` / `--no-perception` | `PEPPER_AUDIO` / `PEPPER_CAMERA` / `PEPPER_PERCEPTION` | on | switch subsystems off |
-| `--hand-raise-vision` | `PEPPER_HAND_RAISE_VISION` | off | laptop MediaPipe detector (`vision` extra) |
 | `--camera-fps` / `--camera-res` | `PEPPER_CAMERA_FPS` / `PEPPER_CAMERA_RES` | 10 / `qvga` | camera stream |
 | – | `PEPPER_AUDIO_RATE` | 16000 | ignored by `pepper-mcp-gemini`, which always uses 16000 (Gemini Live's input rate) |
 | `--mic` | `PEPPER_MIC` | `auto` | head mic to listen with: `auto` (front, or the first that isn't dead; measured for 0.6 s at start, so loud talking right next to one side can mislead it), `front`, `left`, `right`, `rear` |
@@ -521,7 +519,6 @@ src/pepper_mcp/
   robot/        NAOqi wrappers (motion, speech, camera, audio_in, perception, …) + fake.py
   reflexes/     attention, high_five, greet, touch_reaction, low_battery
   tools/        MCP tools, one module per domain (auto-registered)
-  vision/       optional MediaPipe hand-raise detector
   games/        tic-tac-toe on the tablet
   assets/       files served to the tablet (GIF, audio)
   preview.py    MJPEG / live audio / SSE side channel; verify.py
@@ -561,7 +558,7 @@ ruff check src tests
 | `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 7) |
 | Internet drops when the router cable is plugged in | the wired profile took the default route: use `pepper-router` (option B, step B2), check `ip route get 1.1.1.1` says `dev wl…` |
 | Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step B4 |
-| no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
+| no `person.waving` | `ALWavingDetection` needs a person facing the robot with the hand raised clearly above the shoulder |
 | Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 12); nothing else answers |
 | Pepper mishears words | `[heard]` wrong but the reply fits: only the transcript is off; add the words to `vocabulary.txt`. Reply wrong too: talk from within about 1 m (the fans drown speech further away) and check the `microphone(s) … look dead` log line |
 | Pepper says "ouch" (NAOqi's voice) when pushed | log says `NAOqi refused to turn off push recovery`: open `http://<PEPPER_IP>/` → Settings → Advanced, tick *Permit deactivation of the safety reflexes*, restart `pepper-mcp-gemini`. This only permits turning reflexes off; the server turns off push recovery alone and turns it back on at shutdown |

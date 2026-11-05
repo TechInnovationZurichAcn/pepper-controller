@@ -390,9 +390,8 @@ function renderReflexes(list) {
 function renderPerception(p) {
   const box = $("#perception");
   if (!p) { box.replaceChildren(h("div", {class: "empty"}, "Perception disabled")); return; }
-  const names = [...S.options.extractors, "hand_raise_vision"];
-  syncRows(box, names, n => n,
-    n => row(nice(n), n === "hand_raise_vision" ? "laptop MediaPipe detector" : null,
+  syncRows(box, S.options.extractors, n => n,
+    n => row(nice(n), null,
       sw(p[n], v => act("perception", {name: n, enabled: v}, nice(n) + (v ? " on" : " off")), n)),
     (el, n) => setSw(el.querySelector(".switch"), p[n]));
 }

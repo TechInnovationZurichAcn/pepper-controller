@@ -15,7 +15,7 @@ same change.
 
 ```bash
 source .venv/bin/activate                      # Python 3.12 venv; qi has no wheels for 3.13+
-uv pip install -e ".[all,dev]"                 # recreate deps (all = robot; also: vision)
+uv pip install -e ".[all,dev]"                 # recreate deps (all = robot)
 pytest -q                                      # whole suite runs against robot/fake.py, no hardware
 ruff check src tests                           # lint (config in pyproject.toml)
 pepper-mcp-gemini --fake --preview-port 8765                                  # voice agent on the fake robot (needs .env key)
@@ -37,7 +37,7 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
 - `robot/`: one module per NAOqi concern, services resolved lazily via `conn.service("ALX")`.
   `robot/fake.py` is the in-memory NAOqi used by tests and `--fake`; extend it whenever a
   robot module starts calling a new NAOqi method.
-- `reflexes/` (subclass `reflexes.base.Reflex`), `vision/` (optional MediaPipe), `preview.py`
+- `reflexes/` (subclass `reflexes.base.Reflex`), `preview.py`
   (HTTP side channel), `gemini_live.py`
   (`pepper-mcp-gemini`, Gemini Live on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`;
   system instruction read from `persona.txt` in the repo root at startup; transcription vocabulary from `vocabulary.txt`).
