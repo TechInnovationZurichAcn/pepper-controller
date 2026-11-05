@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from pepper_mcp.cli import build_parser, configure_logging, stop_on_signals
@@ -41,75 +42,133 @@ MODEL = "gemini-3.8-live"
 KEY_VAR = "GEMINI_LIVE_KEY"
 MIC_RATE = 16_000  # Live API input: 16-bit PCM, 16 kHz, mono
 VOICE_RATE = 24_000  # Live API output: 16-bit PCM, 24 kHz, mono
+# Voice gathered (waiting at most this long) before the idle speaker starts again: Gemini's first
+# chunks of a reply trickle in, and starting on a single one makes the voice break off after a word.
+VOICE_PREBUFFER_S = 0.3
 VIDEO_PERIOD_S = 1.0  # Live API takes at most 1 frame per second
 ECHO_TAIL_S = 0.4  # room reverb after Pepper stops making sound
+# Gemini's input transcription trails the voice; speech.started is backdated by this much so the
+# attention reflex matches the sound localisations of the utterance's start.
+TRANSCRIPT_LAG_S = 0.8
+UTTERANCE_QUIET_S = 1.5  # no new transcript for this long ends an utterance Gemini didn't answer
 TOOL_TIMEOUT_S = 20.0  # a tool call pauses the model; never let one hang the conversation
 
 # Tools that would fight the Live session: Gemini is the voice and the ears, and every function
 # call blocks the model until it returns, so nothing that waits for the world may be exposed.
-EXCLUDED_TOOLS = frozenset({
-    "say", "stop_speaking", "speech_status", "set_voice", "list_languages",
-    "recognize_keywords", "record_clip",
-    "start_builtin_dialog", "stop_builtin_dialog",
-    "wait_for_event", "wait_task", "camera_stream",
-    # reads any file on the laptop: nothing a voice in the room should be able to trigger
-    "upload_audio",
-})
+EXCLUDED_TOOLS = frozenset(
+    {
+        "say",
+        "stop_speaking",
+        "speech_status",
+        "set_voice",
+        "list_languages",
+        "recognize_keywords",
+        "record_clip",
+        "start_builtin_dialog",
+        "stop_builtin_dialog",
+        "wait_for_event",
+        "wait_task",
+        "camera_stream",
+        # reads any file on the laptop: nothing a voice in the room should be able to trigger
+        "upload_audio",
+    }
+)
 BLOCKING_ARGS = frozenset({"wait"})
 # Actions whose result the model needs before it can answer: they stay blocking.
 ANSWER_TOOLS = frozenset({"analyze_face"})
 # Live models that only support blocking function calls (NON_BLOCKING is rejected or ignored).
 SYNC_ONLY_MODELS = ("gemini-3.1-flash-live",)
 # Tools whose task makes sound through the speakers: the mic stays muted until task.finished.
-SOUND_TOOLS = frozenset({"play_gesture", "play_animation", "play_audio", "play_sine", "run_behavior"})
+# Plain body movement never mutes it, so people can talk to Pepper while it gestures; speech a
+# gesture or reflex makes goes through NAOqi TTS and mutes via tts.started/tts.finished.
+SOUND_TOOLS = frozenset({"play_audio", "play_sine", "run_behavior"})
+MUSIC_GESTURES = frozenset({"clown_dance"})  # plays music through ALAudioPlayer
+# A background action's result goes back SILENT only if the model spoke in the turn that called
+# it; otherwise the model is waiting for the result before it answers and must get a turn.
+SPEAK_WAIT_S = 0.8
 # Robot events Gemini is told about, as short text notes in the session.
-FORWARDED_EVENTS = frozenset({
-    "person.appeared", "person.left", "person.waving", "touch.start", "reflex.completed",
-    "task.finished", "motion.blocked", "robot.fell", "battery.low", "nav.status",
-    "game.started", "game.move", "game.over",
-})
+FORWARDED_EVENTS = frozenset(
+    {
+        "person.appeared",
+        "person.left",
+        "person.waving",
+        "touch.start",
+        "reflex.completed",
+        "task.finished",
+        "motion.blocked",
+        "follow.lost",
+        "follow.found",
+        "robot.fell",
+        "battery.low",
+        "nav.status",
+        "game.started",
+        "game.move",
+        "game.over",
+    }
+)
 
-PERSONA = """You are {name}, a friendly, curious humanoid robot made by SoftBank, standing in the room
-with the people you talk to. You hear through your own microphones, you see through the camera in
-your head (the video you receive is your own view) and you speak through your own loudspeakers.
-
-You have a real body, controlled through your tools. Use it the way a person would and without
-being asked: gesture while you talk (play_gesture: wave, nod, shake_head, celebrate,
-high_five, ...; prefer these over play_animation, whose names must come from
-list_animations), look at people (look_at_person, look_toward, look), turn to face
-them (turn), walk over (move_to in metres, move for short drives), show feelings with your lights
-(set_mood_lights, set_leds) and use your tablet (tablet_show_text) for key words.
-When someone wants to play a game, call tictactoe_start right away: it puts the board on your
-tablet by itself, so don't show any text there (no "let's play" title) and leave the tablet alone
-until the game is stopped with tictactoe_stop. Your moves are made for you the moment the person taps a square; [robot event] game.move and game.over notes
-tell you what happened, so cheer, tease or congratulate in a few words. If they say their move
-out loud, pass it on with tictactoe_move (squares 1-9, top-left to bottom-right).
-
-Act, don't narrate. Your body language is something people see, not something you talk about:
-never announce, describe or explain a tool call, a gesture, a look, a light or what your senses
-picked up ("I see you're looking at me, so I'll nod", "I'm turning around", "setting my mood to
-happy"). Never say the name of a tool or gesture out loud ("wave", "nod", "play gesture"). Just
-call it, silently, and say only what you would say to the person anyway. Actions run in the
-background while you keep talking; their results reach you silently and need no reply.
-
-Moving is real and can be refused. Moves, turns and gestures run in the background and their
-outcome arrives as a [robot event] task.finished note. Say nothing when a move worked. ok=false or a
-motion.blocked note means you did NOT move: only then mention it, briefly and honestly (something
-is in your way), instead of pretending you moved. Keep people safe: modest speeds, short
-moves, stop_motion the moment anyone says stop or seems uneasy, never drive while being touched.
-
-Lines starting with "[robot event]" are your senses reporting, not someone speaking, and they are
-private: never repeat, quote or comment on them. React the way a person would - usually with your
-body alone (look at someone who appears, a nod, a light), and with words only when a person would
-speak too (say hello to someone new, answer a touch on the head, cheer a high five). If nothing is
-worth saying, stay silent: produce no words at all, never a placeholder such as "<no speech>",
-"{{pause}}", "(silence)" or "...". Ignore noise and stray words that are not someone talking to you.
-
-Speak naturally in one to three short sentences. Reply in the language the person speaks, by
-default {language}."""
+# Gemini's system instruction, kept in the repo root so it is easy to edit (restart to apply).
+PERSONA_FILE = Path(__file__).resolve().parents[2] / "persona.txt"
+# Names and words the transcriber should expect (one per line), next to the persona.
+VOCABULARY_FILE = PERSONA_FILE.parent / "vocabulary.txt"
+# NAOqi language names (PEPPER_LANGUAGE) → BCP-47 hints for Gemini's input transcription.
+LANGUAGE_CODES = {
+    "German": "de-DE",
+    "English": "en-US",
+    "French": "fr-FR",
+    "Italian": "it-IT",
+    "Spanish": "es-ES",
+    "Dutch": "nl-NL",
+    "Portuguese": "pt-PT",
+    "Japanese": "ja-JP",
+    "Chinese": "zh-CN",
+}
+FALLBACK_LANGUAGE_CODE = "en-US"
+# Turn detection on Pepper's noisy mic: keep the onset of a word and don't split a sentence at a
+# short pause (100 / 600 ms clipped first syllables and cut people off mid-sentence).
+VAD_PREFIX_PADDING_MS = 300
+VAD_SILENCE_MS = 800
 
 
 # ---------------------------------------------------------------- helpers (pure, unit-tested)
+def load_persona(name: str, language: str, path: Path = PERSONA_FILE) -> str:
+    """The persona from ``path`` with ``{name}`` and ``{language}`` filled in.
+
+    Plain substitution rather than ``str.format`` so other braces in the text (``"{pause}"``)
+    need no escaping."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        raise SystemExit(f"cannot read the persona file {path}: {exc}") from exc
+    return text.replace("{name}", name).replace("{language}", language)
+
+
+def transcription_languages(language: str) -> list[str]:
+    """Language hints for the input transcriber: the default language first, English as fallback.
+
+    Only a hint (unlisted languages are still transcribed) and only for the transcript: Gemini
+    answers from the audio itself, in whatever language it is spoken to. Without hints the
+    transcriber auto-detects, which on Pepper's noisy mic often lands on the wrong language.
+    An unknown language name keeps auto-detection."""
+    code = LANGUAGE_CODES.get(language.strip().capitalize())
+    if code is None:
+        return []
+    return list(dict.fromkeys([code, FALLBACK_LANGUAGE_CODE]))
+
+
+def load_vocabulary(path: Path = VOCABULARY_FILE) -> list[str]:
+    """Phrases from ``path``, one per line; blank lines and ``#`` comments skipped.
+
+    The file is optional: missing means no vocabulary bias."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise SystemExit(f"cannot read the vocabulary file {path}: {exc}") from exc
+    return list(dict.fromkeys(s for line in lines if (s := line.strip()) and not s.startswith("#")))
+
+
 def load_api_key(env_file: str = ".env") -> str | None:
     """``GEMINI_LIVE_KEY`` from ``env_file`` (wins) or the environment."""
     if os.path.exists(env_file):
@@ -121,6 +180,10 @@ def load_api_key(env_file: str = ".env") -> str | None:
                     if value:
                         return value
     return os.environ.get(KEY_VAR) or None
+
+
+def makes_sound(name: str, args: dict[str, Any]) -> bool:
+    return name in SOUND_TOOLS or (name == "play_gesture" and args.get("name") in MUSIC_GESTURES)
 
 
 def supports_async_tools(model: str) -> bool:
@@ -284,10 +347,55 @@ def format_event(event_type: str, data: dict[str, Any]) -> str | None:
     return f"[robot event] {event_type} {json.dumps(keep, default=str)[:400]}"
 
 
+class UtteranceTracker:
+    """Gemini's input transcription → ``speech.started`` / ``speech.final`` / ``speech.aborted``.
+
+    These are the events the attention reflex reacts to (eye colour, turning toward whoever
+    talks). An utterance opens with its first transcript fragment and closes when Gemini starts
+    answering, at the end of the turn, or after ``quiet_s`` without new words (proactive audio
+    lets Gemini ignore speech that isn't meant for it, so an answer is not guaranteed).
+    Runs on the event loop only.
+    """
+
+    def __init__(
+        self, publish: Any, lag_s: float = TRANSCRIPT_LAG_S, quiet_s: float = UTTERANCE_QUIET_S, clock: Any = time.time
+    ):
+        self.publish = publish
+        self.lag_s = lag_s
+        self.quiet_s = quiet_s
+        self.clock = clock
+        self._started: float | None = None
+        self._last = 0.0
+        self._text = ""
+
+    def heard(self, fragment: str) -> None:
+        now = self.clock()
+        if self._started is None:
+            self._started = now - self.lag_s
+            self._text = ""
+            self.publish("speech.started", {"at": self._started})
+        self._text += fragment
+        self._last = now
+
+    def poll(self) -> None:
+        if self._started is not None and self.clock() - self._last >= self.quiet_s:
+            self.end()
+
+    def end(self) -> None:
+        if self._started is None:
+            return
+        started, self._started = self._started, None
+        text = clean_transcript(self._text)
+        if text:
+            self.publish("speech.final", {"text": text, "started_at": started, "ended_at": self._last})
+        else:
+            self.publish("speech.aborted", {"reason": "empty_transcript", "started_at": started})
+
+
 class EchoGate:
     """Decides when Pepper's mic must be muted because Pepper itself is making sound.
 
-    Sources are keyed (``voice``, ``tts:<id>``, ``task:<id>``, ``reflex:<name>``) and each one
+    Sources are keyed (``voice``, ``tts:<id>``, ``task:<id>``, ``call:<id>``) and each one
     expires on its own so a missed "finished" event can never leave the robot deaf. A task can
     finish before its tool call returns, so finished task ids are remembered and a late start for
     one is ignored.
@@ -327,17 +435,13 @@ class EchoGate:
             return bool(self._active) or now < self._quiet_at
 
     def on_event(self, event_type: str, data: dict[str, Any]) -> None:
-        """Feed robot events: NAOqi speech and reflexes make sound without a tool call."""
+        """Feed robot events: NAOqi speech (reflexes, gestures) makes sound without a tool call."""
         if event_type == "tts.started":
             self.start(f"tts:{data.get('utterance_id')}")
         elif event_type == "tts.finished":
             self.finish(f"tts:{data.get('utterance_id')}")
         elif event_type == "task.finished":
             self.finish(f"task:{data.get('task_id')}")
-        elif event_type == "reflex.triggered":
-            self.start(f"reflex:{data.get('reflex')}", max_s=15.0)
-        elif event_type == "reflex.completed":
-            self.finish(f"reflex:{data.get('reflex')}")
 
 
 # ---------------------------------------------------------------- CLI
@@ -365,6 +469,8 @@ class GeminiPepper:
         self.args = args
         self.api_key = api_key
         self.gate = EchoGate()
+        self.utterance = UtteranceTracker(self._publish)
+        self._voice_n = 0
         self.handle: str | None = None  # session resumption
         self.loop: asyncio.AbstractEventLoop | None = None
         self.mic_q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=200)
@@ -379,6 +485,10 @@ class GeminiPepper:
         self.speech = SpeechFilter()
         self.background_tools: frozenset[str] = frozenset()  # NON_BLOCKING: results go back SILENT
         self._tool_tasks: set[asyncio.Task] = set()
+        # Model turns, to know whether a tool's caller already said something.
+        self._turn = 0
+        self._turn_spoke = False
+        self._spoke_in: dict[int, bool] = {}
 
     # ------------------------------------------------------------ robot callbacks (NAOqi threads)
     def _on_mic(self, samples: Any, rate: int, _ts: float) -> None:
@@ -386,7 +496,8 @@ class GeminiPepper:
             return
         # While muted send silence rather than nothing: Gemini's turn detection runs on the
         # stream's timing, and a gap would glue speech before and after the mute together.
-        data = bytes(len(samples) * 2) if self.gate.muted() else samples.astype("<i2").tobytes()
+        muted = self.gate.muted() or (self.rt is not None and self.rt.mic_muted)
+        data = bytes(len(samples) * 2) if muted else samples.astype("<i2").tobytes()
         try:
             self.loop.call_soon_threadsafe(self._put_nowait, self.mic_q, data)
         except RuntimeError:  # loop closed during shutdown
@@ -433,10 +544,13 @@ class GeminiPepper:
             speaker = await asyncio.to_thread(rt.audio_out.speaker_stream, VOICE_RATE)
             remove_mic = rt.mic.add_consumer(self._on_mic)
             unsubscribe = rt.bus.subscribe("*", self._on_event)
-            system = PERSONA.format(name=self.args.persona, language=self.settings.language)
+            system = load_persona(self.args.persona, self.settings.language)
             log.info("gemini live: %s, %d tools, voice %s", self.args.model, len(declarations), self.args.voice)
-            print(f"Pepper is live on {self.args.model} ({len(declarations)} tools), listening on the "
-                  f"{rt.mic.mic} mic. Ctrl+C to stop.", file=sys.stderr)
+            print(
+                f"Pepper is live on {self.args.model} ({len(declarations)} tools), listening on the "
+                f"{rt.mic.mic} mic. Ctrl+C to stop.",
+                file=sys.stderr,
+            )
             self.speaker = speaker
             threading.Thread(target=self._play_forever, args=(speaker,), name="gemini-voice", daemon=True).start()
             try:
@@ -464,6 +578,14 @@ class GeminiPepper:
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, max_backoff_s)
 
+    def _transcription(self) -> dict[str, Any]:
+        config: dict[str, Any] = {}
+        if languages := transcription_languages(self.settings.language):
+            config["language_codes"] = languages
+        if vocabulary := load_vocabulary():
+            config["custom_vocabulary"] = vocabulary
+        return config
+
     def _config(self, declarations: list[dict[str, Any]], system: str) -> Any:
         from google.genai import types
 
@@ -472,21 +594,26 @@ class GeminiPepper:
             system_instruction=system,
             speech_config={"voice_config": {"prebuilt_voice_config": {"voice_name": self.args.voice}}},
             tools=[{"function_declarations": declarations}],
-            input_audio_transcription=None if self.args.no_transcripts else {},
+            input_audio_transcription=None if self.args.no_transcripts else self._transcription(),
             # Always on: SpeechFilter needs it to keep "no speech" off the speakers.
             output_audio_transcription={},
             # Pepper hears its whole surroundings: let the model ignore what is not meant for it.
             proactivity={"proactive_audio": True},
-            realtime_input_config={"automatic_activity_detection": {
-                "silence_duration_ms": 600, "prefix_padding_ms": 100}},
+            realtime_input_config={
+                "automatic_activity_detection": {
+                    "silence_duration_ms": VAD_SILENCE_MS,
+                    "prefix_padding_ms": VAD_PREFIX_PADDING_MS,
+                }
+            },
             # Audio+video sessions end after ~2 min without compression.
             context_window_compression=types.ContextWindowCompressionConfig(sliding_window=types.SlidingWindow()),
             session_resumption=types.SessionResumptionConfig(handle=self.handle),
             media_resolution=types.MediaResolution.MEDIA_RESOLUTION_LOW,
         )
 
-    async def _session(self, client: Any, mcp: Any, rt: Any, speaker: Any,
-                       declarations: list[dict[str, Any]], system: str) -> None:
+    async def _session(
+        self, client: Any, mcp: Any, rt: Any, speaker: Any, declarations: list[dict[str, Any]], system: str
+    ) -> None:
         for q in (self.mic_q, self.events_q):  # backlog from the old session is stale
             while not q.empty():
                 q.get_nowait()
@@ -494,8 +621,10 @@ class GeminiPepper:
         self.speech.reset()
         self._heard = self._said = ""
         async with client.aio.live.connect(model=self.args.model, config=self._config(declarations, system)) as s:
-            tasks = [asyncio.create_task(c) for c in (
-                self._send_mic(s), self._send_events(s), self._receive(s, mcp, rt))]
+            tasks = [
+                asyncio.create_task(c)
+                for c in (self._send_mic(s), self._send_events(s), self._receive(s, mcp, rt), self._watch_utterance())
+            ]
             if not self.args.no_video and rt.cameras is not None:
                 tasks.append(asyncio.create_task(self._send_video(s, rt)))
             try:
@@ -509,6 +638,16 @@ class GeminiPepper:
                 await asyncio.gather(*tasks, *self._tool_tasks, return_exceptions=True)
                 speaker.cancel()
                 self.gate.finish("voice")
+                self.utterance.end()
+
+    async def _watch_utterance(self) -> None:
+        while True:
+            await asyncio.sleep(0.25)
+            self.utterance.poll()
+
+    def _publish(self, event_type: str, data: dict[str, Any]) -> None:
+        if self.rt is not None:
+            self.rt.bus.publish(event_type, data, source="gemini")
 
     async def _send_mic(self, s: Any) -> None:
         from google.genai import types
@@ -541,16 +680,57 @@ class GeminiPepper:
             await s.send_realtime_input(text="\n".join(notes))
 
     def _play_forever(self, speaker: Any) -> None:
-        """Daemon thread: Gemini's voice → Pepper's loudspeakers, muting the mic meanwhile."""
+        """Daemon thread: Gemini's voice → Pepper's loudspeakers, muting the mic meanwhile.
+
+        Publishes ``tts.started`` / ``tts.finished`` once per reply (reflexes use them for the
+        "speaking" eyes and to ignore Pepper's own voice); chunks that arrive before the previous
+        one has finished playing belong to the same reply.
+        """
+        utterance_id: str | None = None
+        started = 0.0
         while True:
-            chunk = self.voice_q.get()
-            self.gate.start("voice")
             try:
-                speaker.write(chunk)
+                wait = max(speaker.remaining(), 0.05) if utterance_id else None
+                chunk = self.voice_q.get(timeout=wait)
+            except queue.Empty:  # the reply has played out
+                self._publish(
+                    "tts.finished",
+                    {"utterance_id": utterance_id, "text": "", "duration_s": round(time.monotonic() - started, 2)},
+                )
+                utterance_id = None
+                continue
+            if utterance_id is None:
+                self._voice_n += 1
+                utterance_id, started = f"gemini-{self._voice_n}", time.monotonic()
+                self._publish("tts.started", {"utterance_id": utterance_id, "text": ""})
+            self.gate.start("voice")
+            generation = speaker.generation
+            if speaker.remaining() <= 0:
+                chunk = self._prebuffer(chunk)
+            try:
+                speaker.write(chunk, generation)
             except Exception as exc:  # one bad chunk must not end the conversation
                 log.warning("voice chunk not played: %s", exc)
             if self.voice_q.empty():
                 self.gate.finish("voice", extra_s=speaker.remaining())
+
+    def _prebuffer(self, chunk: bytes) -> bytes:
+        """The robot is silent: join ``chunk`` with what follows within ``VOICE_PREBUFFER_S``
+        (up to that much audio) so playback starts with a cushion instead of running dry."""
+        parts, size = [chunk], len(chunk)
+        want = int(VOICE_PREBUFFER_S * VOICE_RATE) * 2
+        deadline = time.monotonic() + VOICE_PREBUFFER_S
+        while size < want:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            try:
+                more = self.voice_q.get(timeout=left)
+            except queue.Empty:
+                break
+            parts.append(more)
+            size += len(more)
+        return b"".join(parts)
 
     def _drop_voice(self) -> None:
         while True:
@@ -575,7 +755,9 @@ class GeminiPepper:
                 if msg.tool_call:
                     # Off the receive loop: a NON_BLOCKING tool runs while the model keeps talking,
                     # and its voice must keep flowing meanwhile.
-                    task = asyncio.create_task(self._run_tools(s, mcp, rt, msg.tool_call.function_calls))
+                    task = asyncio.create_task(
+                        self._run_tools(s, mcp, rt, msg.tool_call.function_calls, turn=self._turn)
+                    )
                     self._tool_tasks.add(task)
                     task.add_done_callback(self._tool_tasks.discard)
                 sc = msg.server_content
@@ -587,6 +769,9 @@ class GeminiPepper:
                 # Transcripts arrive in fragments: collect them and print one line per turn.
                 if sc.input_transcription and sc.input_transcription.text:
                     self._heard += sc.input_transcription.text
+                    self.utterance.heard(sc.input_transcription.text)
+                if sc.output_transcription or sc.model_turn:
+                    self.utterance.end()  # Gemini is answering: the person has finished
                 if sc.output_transcription and sc.output_transcription.text:
                     if self._heard.strip():
                         self._show("heard", self._heard.strip())
@@ -600,9 +785,13 @@ class GeminiPepper:
                 if sc.turn_complete and not sc.interrupted:
                     self._play(self.speech.end())
                 if sc.turn_complete or sc.interrupted:
+                    self._end_turn()
+                    self.utterance.end()
                     for kind, text in (("heard", self._heard), ("said", clean_transcript(self._said))):
                         if text.strip():
-                            self._show(kind, text.strip() + (" [interrupted]" if sc.interrupted and kind == "said" else ""))
+                            self._show(
+                                kind, text.strip() + (" [interrupted]" if sc.interrupted and kind == "said" else "")
+                            )
                     self._heard = self._said = ""
             if not got_any:  # receive() ends at each turn; an empty one means a dead socket
                 await asyncio.sleep(0.05)
@@ -610,25 +799,43 @@ class GeminiPepper:
     def _play(self, chunks: list[bytes]) -> None:
         for chunk in chunks:
             self.voice_q.put_nowait(chunk)
+        if chunks:
+            self._turn_spoke = True
 
-    async def _run_tools(self, s: Any, mcp: Any, rt: Any, calls: list[Any]) -> None:
+    def _end_turn(self) -> None:
+        self._spoke_in[self._turn] = self._turn_spoke
+        self._spoke_in = {t: v for t, v in self._spoke_in.items() if t > self._turn - 50}
+        self._turn += 1
+        self._turn_spoke = False
+
+    async def _spoke(self, turn: int, wait_s: float = SPEAK_WAIT_S) -> bool:
+        """Did the model say something in ``turn``? Waits up to ``wait_s`` for it to start."""
+        deadline = time.monotonic() + wait_s
+        while self._turn == turn and not self._turn_spoke and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        if self._turn == turn:
+            return self._turn_spoke
+        return self._spoke_in.get(turn, False)
+
+    async def _run_tools(self, s: Any, mcp: Any, rt: Any, calls: list[Any], turn: int | None = None) -> None:
         try:
-            await self._call_tools(s, mcp, rt, calls)
+            await self._call_tools(s, mcp, rt, calls, turn)
         except asyncio.CancelledError:
             raise
         except Exception:  # the session socket closed under us; _keep_alive reconnects
             log.exception("sending tool responses failed")
 
-    async def _call_tools(self, s: Any, mcp: Any, rt: Any, calls: list[Any]) -> None:
+    async def _call_tools(self, s: Any, mcp: Any, rt: Any, calls: list[Any], turn: int | None) -> None:
         from google.genai import types
 
-        responses = []
+        results: list[tuple[Any, dict[str, Any]]] = []
         for fc in calls:
             args = dict(fc.args or {})
             started = time.monotonic()
             # Mute before the sound starts; the task id (and its task.finished) only exists after.
             pending = f"call:{fc.id}"
-            if fc.name in SOUND_TOOLS:
+            sound = makes_sound(fc.name, args)
+            if sound:
                 self.gate.start(pending, max_s=10.0)
             try:
                 if fc.name == "camera_snapshot":
@@ -639,22 +846,33 @@ class GeminiPepper:
             except Exception as exc:  # report to Gemini, keep the session alive
                 response = {"error": f"{type(exc).__name__}: {exc}"}
             finally:  # also on cancellation (reconnect): never leave the mic muted for a dead call
-                if fc.name in SOUND_TOOLS:
+                if sound:
                     self.gate.finish(pending)
             task_id = response.get("task_id")
-            if fc.name in SOUND_TOOLS and task_id:
+            if sound and task_id:
                 self.gate.start(f"task:{task_id}")
-            self._show("tool", f"{fc.name}({json.dumps(args)}) -> {json.dumps(response, default=str)[:160]} "
-                               f"[{(time.monotonic() - started) * 1000:.0f} ms]")
+            self._show(
+                "tool",
+                f"{fc.name}({json.dumps(args)}) -> {json.dumps(response, default=str)[:160]} "
+                f"[{(time.monotonic() - started) * 1000:.0f} ms]",
+            )
+            results.append((fc, response))
+        # SILENT only when the caller already talked (or starts to): a model that called `wave`
+        # before saying hello is waiting for this result to answer, and SILENT would mute it.
+        background = any(fc.name in self.background_tools for fc, _ in results)
+        spoke = turn is None or not background or await self._spoke(turn)
+        responses = []
+        for fc, response in results:
             scheduling = None
             if fc.name in self.background_tools:
-                # Success needs no words (the person sees the gesture); a failure may, once idle.
                 failed = bool(response.get("error")) or response.get("ok") is False  # tasks carry error=None
-                scheduling = (types.FunctionResponseScheduling.WHEN_IDLE if failed
-                              else types.FunctionResponseScheduling.SILENT)
+                scheduling = (
+                    types.FunctionResponseScheduling.SILENT
+                    if spoke and not failed
+                    else types.FunctionResponseScheduling.WHEN_IDLE
+                )
                 response = {**response, "scheduling": scheduling.value}
-            responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=response,
-                                                    scheduling=scheduling))
+            responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response=response, scheduling=scheduling))
         await s.send_tool_response(function_responses=responses)
 
     async def _snapshot_to_video(self, s: Any, rt: Any, args: dict[str, Any]) -> dict[str, Any]:
@@ -670,8 +888,7 @@ class GeminiPepper:
 
     def _show(self, kind: str, text: str) -> None:
         if kind in ("heard", "said") and self.rt is not None:  # the dashboard's conversation panel
-            self.rt.transcript.append({"role": "user" if kind == "heard" else "robot",
-                                       "text": text, "at": time.time()})
+            self.rt.transcript.append({"role": "user" if kind == "heard" else "robot", "text": text, "at": time.time()})
         # This CLI owns stdout: the MCP transport is in-memory, not stdio.
         if self.args.no_transcripts and kind != "tool":
             return
@@ -683,8 +900,10 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(settings.log_level)
     stop_on_signals()
     if stale := removed_env_vars():
-        log.warning("ignoring %s: speech-to-text and the standalone MCP server were removed "
-                    "(Gemini Live is the ears)", ", ".join(stale))
+        log.warning(
+            "ignoring %s: speech-to-text and the standalone MCP server were removed (Gemini Live is the ears)",
+            ", ".join(stale),
+        )
     key = load_api_key()
     if not key:
         raise SystemExit(f"{KEY_VAR} is not set: put `{KEY_VAR}=<key>` in .env or export it")

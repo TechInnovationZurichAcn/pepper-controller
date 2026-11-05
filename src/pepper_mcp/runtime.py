@@ -12,6 +12,7 @@ import threading
 import time
 from collections import deque
 from typing import Any
+from urllib.parse import urlparse
 
 from pepper_mcp import __version__
 from pepper_mcp.config import Settings
@@ -26,12 +27,13 @@ from pepper_mcp.robot.connection import RobotConnection, RobotError
 from pepper_mcp.robot.events import EventBus, MemoryWatcher
 from pepper_mcp.robot.gestures import GestureContext, GestureRegistry
 from pepper_mcp.robot.leds import Leds
-from pepper_mcp.robot.motion import Motion
+from pepper_mcp.robot.motion import HATCH_OPEN, Motion
 from pepper_mcp.robot.navigation import Navigator
 from pepper_mcp.robot.perception import Perception
 from pepper_mcp.robot.speech import Speech
 from pepper_mcp.robot.system import System
 from pepper_mcp.robot.tablet import Tablet
+from pepper_mcp.robot.tablet_relay import TabletRelay
 from pepper_mcp.robot.tasks import TaskRegistry
 from pepper_mcp.robot.tracker import Tracker
 
@@ -70,11 +72,15 @@ class Runtime:
         self.mic: MicrophoneStream | None = MicrophoneStream(conn, settings.audio_rate, settings.mic)
         #: the voice agent that owns the mic stream, e.g. "Gemini Live (<model>)"; set by the bridge
         self.voice_agent: str | None = None
+        #: muted from the dashboard: the voice agent gets silence instead of mic audio
+        self.mic_muted = False
         #: the conversation as the voice agent reports it: {"role": "user"|"robot", "text", "at"}
         self.transcript: deque[dict[str, Any]] = deque(maxlen=200)
         self.reflexes = None
         self.vision = None
         self.preview = None
+        #: forwards the head's tablet-side address to the preview server (see robot/tablet_relay.py)
+        self.tablet_relay: TabletRelay | None = None
         self.gestures = GestureRegistry(self._gesture_context)
         self.tictactoe = TicTacToe(self.bus)
         self._asset_urls: dict[str, str | None] = {}
@@ -90,17 +96,34 @@ class Runtime:
 
     def assets_url(self, filename: str) -> str | None:
         """URL the robot's tablet can load for a bundled asset (preview server or robot web root)."""
+        # Not cached: the relay can die or come back, and the URL is cheap to rebuild.
+        base = self.tablet_base_url()
+        if base:
+            return f"{base}/assets/{filename}"
         with self._lock:
             if filename in self._asset_urls:
                 return self._asset_urls[filename]
         url = None
-        if self.preview is not None and self.preview.base_url:
-            url = f"{self.preview.base_url}/assets/{filename}"
-        elif self.audio_out is not None and not self.settings.fake:
-            url = self.audio_out.deploy_web_asset(filename)
+        if self.audio_out is not None and not self.settings.fake:
+            url = self.audio_out.deploy_web_asset(filename)  # scp once, then the cached path
         with self._lock:
             self._asset_urls[filename] = url
         return url
+
+    def tablet_base_url(self) -> str | None:
+        """Where Pepper's tablet reaches the preview server, or ``None`` when it cannot.
+
+        The tablet is not on the LAN: it goes through the relay on the head, or straight to the
+        laptop only when its own Wi-Fi is connected. The preview server's LAN URL alone shows a
+        blank page on the tablet.
+        """
+        if self.preview is None or not self.preview.base_url or self.tablet is None:
+            return None
+        if self.tablet_relay is not None:
+            url = self.tablet_relay.url()  # never blocks; a dead relay restarts in the background
+            if url:
+                return url
+        return self.preview.base_url if self.tablet.wifi_connected() else None
 
     def _warn(self, msg: str) -> None:
         log.warning(msg)
@@ -129,6 +152,8 @@ class Runtime:
         self._optional("base safety distances",
                        lambda: self.motion.set_security_distances(s.safety_front_m, s.safety_side_m))
         self.motion.start()
+        if self.motion.hatch_open():
+            self._warn(f"{HATCH_OPEN}: Pepper can't drive, turn or follow")
         self._optional("liveliness preset", lambda: self.awareness.apply_preset(s.liveliness))
         self.speech.start()
         self._optional("TTS language", lambda: self.speech.set_voice(language=s.language))
@@ -161,6 +186,8 @@ class Runtime:
         for name, obj in (("leds", self.leds), ("tablet", self.tablet)):
             if obj is not None and not self.conn.has_service({"leds": "ALLeds", "tablet": "ALTabletService"}[name]):
                 setattr(self, name, None)
+        if self.preview is not None and self.tablet is not None and not s.fake:
+            self._optional("tablet relay", self._start_tablet_relay)
         if self.navigator is not None and not self.navigator.available():
             self.navigator = None
         if self.tracker is not None and not self.conn.has_service("ALTracker"):
@@ -194,6 +221,17 @@ class Runtime:
         self.preview = PreviewServer(self, self.settings.preview_host, self.settings.preview_port)
         self.preview.start()
 
+    def _start_tablet_relay(self) -> None:
+        try:
+            listen_ip = str(self.tablet.tablet.robotIp() or "") or "198.18.0.1"
+        except Exception:
+            listen_ip = "198.18.0.1"
+        relay = TabletRelay(self.settings.ip or "", self.settings.ssh_user, self.settings.ssh_password,
+                            listen_ip, self.preview.port, urlparse(self.preview.base_url).hostname or "",
+                            self.preview.port)
+        self.tablet_relay = relay
+        relay.ensure()
+
     def stop(self) -> None:
         log.info("shutting down")
         for label, fn in (
@@ -211,6 +249,7 @@ class Runtime:
             ("perception", lambda: self.perception and self.perception.stop()),
             ("memory", self.memory.stop),
             ("autonomous life", self.awareness.restore_life),
+            ("tablet relay", lambda: self.tablet_relay and self.tablet_relay.stop()),
             ("preview", lambda: self.preview and self.preview.stop()),
             ("events", self.bus.shutdown),
             ("connection", self.conn.close),
@@ -235,6 +274,7 @@ class Runtime:
             "uptime_s": round(time.time() - self.started_at, 1) if self.started_at else None,
             "awake": self.motion.is_awake(),
             "posture": self.motion.current_posture(),
+            "charging_hatch_open": self.motion.hatch_open(),
             "autonomous_life": self.awareness.life_state(),
             "liveliness_preset": self.awareness.preset,
             "speech": self.speech.status(),
@@ -265,6 +305,7 @@ class Runtime:
                 "camera": self.cameras is not None,
                 "microphone": self.mic is not None and self.mic.running,
                 "voice_agent": self.voice_agent,
+                "mic_muted": self.mic_muted,
                 "animated_speech": self.conn.has_service("ALAnimatedSpeech"),
                 "perception": self.perception.active if self.perception else {},
                 "memory_events": self.memory.native_supported,
@@ -275,6 +316,7 @@ class Runtime:
                 "reflexes": self.reflexes.active_names() if self.reflexes else [],
                 "hand_raise_vision": self.vision is not None,
                 "preview_url": self.preview.base_url if self.preview else None,
+                "tablet_url": self.tablet_relay.base_url if self.tablet_relay and self.tablet_relay.alive() else None,
                 "gestures": self.gestures.names(),
             },
             "settings": self.settings.summary(),

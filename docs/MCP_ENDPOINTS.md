@@ -27,9 +27,9 @@ Every tool is non-blocking unless it has a `wait` flag. Long actions return a
 |---|---|---|
 | Connect / diagnose (`pepper_diag.py`) | session, `ALSystem` | `robot_status`, `robot_capabilities`, `list_services` |
 | Holonomic base driving (`moveToward`, keep-alive, security distances) | `ALMotion` | `move`, `move_to`, `turn`, `stop_motion`, `set_safety` |
-| Head / arm / hip / knee joint control with limits, hands open/close | `ALMotion` | `look`, `set_joint_angles`, `arm_pose`, `set_hands`, `list_joints` |
+| Head / arm / hip / knee joint control with limits, hands open/close | `ALMotion` | `look`, `move_joint`, `set_joint_angles`, `arm_pose`, `set_hands`, `list_joints` |
 | Postures (`StandInit`, `Sit`, …) | `ALRobotPosture` | `go_to_posture` |
-| Disable autonomous life / basic awareness / background movement | `ALAutonomousLife`, `ALBasicAwareness`, `ALBackgroundMovement` | `set_autonomous_life`, `set_liveliness`, `set_autonomous_ability` |
+| Disable autonomous life / basic awareness / background movement | `ALAutonomousLife`, `ALBasicAwareness`, `ALBackgroundMovement` | `set_liveliness`, `set_autonomous_ability` |
 | Live head camera (top/bottom, QVGA/VGA, RGB) | `ALVideoDevice` | `camera_snapshot`, `camera_stream`, `pepper://camera/…` resource, MJPEG preview |
 | Text to speech + tablet message | `ALTextToSpeech`, `ALTabletService` | `say`, `tablet_show_text` |
 | Follow-me (ALTracker Move mode, people list polling) | `ALTracker`, `ALPeoplePerception`, `ALMemory` | `follow_person`, `track`, `tracking_status` |
@@ -78,7 +78,6 @@ New capabilities added for real-time interaction (not on `main`):
 | `list_services` | – | NAOqi service names | main |
 | `wake_up` / `rest` | – | ok | main |
 | `get_battery` | – | charge %, charging flag | naoqi |
-| `set_autonomous_life` | `state: disabled\|solitary\|interactive\|safeguard` | new state | main |
 | `set_liveliness` | `preset: off\|calm\|lively`, optional overrides | applied settings | main/naoqi |
 | `set_autonomous_ability` | `ability: BasicAwareness\|BackgroundMovement\|ListeningMovement\|SpeakingMovement\|AutonomousBlinking`, `enabled` | ok | main |
 | `configure_awareness` | `engagement_mode?`, `tracking_mode?`, `engage_person_id?` | BasicAwareness state | naoqi |
@@ -125,6 +124,7 @@ There is no free-speech tool any more: Gemini Live hears the microphone stream i
 | `look_at_person` | `person_id?` (nearest if omitted) | ok |
 | `look_at_point` / `point_at` | `x,y,z`, `frame: robot\|world`, `effector?` | ok |
 | `get_joint_angles` | `names[]?` | angles (rad + deg) |
+| `move_joint` | `joint` (enum of all 17 joints), `degrees`, `relative=false`, `speed=0.3` | `{joint, degrees, clamped?}`; hands take 0–100 % open → `{joint, open_percent}` |
 | `set_joint_angles` | `angles: {joint: deg}`, `speed`, `wait` | ok (clamped to safe limits) |
 | `list_joints` | – | names, limits, descriptions |
 | `arm_pose` | `side: left\|right\|both`, `pose: down\|up\|forward\|out\|hug\|wave_ready` | ok |
@@ -132,6 +132,14 @@ There is no free-speech tool any more: Gemini Live hears the microphone stream i
 | `get_pose` | – | odometry x, y, theta |
 | `set_safety` | `orthogonal_m?`, `tangential_m?`, `arm_collision_protection?`, `move_collision_protection?` | applied values (server default 0.15 / 0.05 m, NAOqi default 0.4 / 0.1 m) |
 | `set_body_lean` | `hip_pitch_deg`, `hip_roll_deg`, `knee_pitch_deg`, `speed` | ok (expressive lean / crouch) |
+
+`move`, `move_to`, `turn` and `follow_person` fail at once with "charging hatch is open" when
+the flap over the charger socket is open (`Device/SubDeviceList/Platform/ILS/Sensor/Value` = 1):
+NAOqi locks the wheels then. `robot_status` reports it as `charging_hatch_open`.
+
+`move`, `move_to` and `turn` take the base from `follow_person` (the result has
+`stopped_following: true`), are refused while navigation runs, and wake a resting robot first;
+so do the joint tools.
 
 ### 2.5 Animations & gestures
 
@@ -217,9 +225,12 @@ tablet …" until `tictactoe_stop`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `follow_person` | `enabled`, `distance_m=0.6` | state |
+| `follow_person` | `enabled`, `distance_m=0.5` (0.5–2; 0.5 is the closest the base can still drive) | state; `hint` when nobody is visible yet, `person_lost` while the person is out of sight |
 | `track` | `target: face\|people\|sound`, `mode: head\|body_rotation\|whole_body\|move`, `enabled` | state |
 | `tracking_status` | – | active target/mode |
+
+While `follow_person` or `track` runs, BasicAwareness is paused (it drives ALTracker too and would
+re-target it) and resumed when tracking stops. The follow loop re-arms ALTracker if NAOqi stops it.
 
 ### 2.12 Navigation & maps
 
@@ -250,9 +261,10 @@ tablet …" until `tictactoe_stop`.
 | `list_reflexes` | – | name, enabled, description, parameters, trigger count |
 | `set_reflex` | `name`, `enabled?`, `params?` | new state |
 
-Built-in reflexes: `attention` (eye colour and a head turn toward a person talking; under
-`pepper-mcp-gemini` the eye colours and speech-triggered turns are inactive, because they wait for
-`speech.*` events that nothing publishes any more),
+Built-in reflexes: `attention` (eyes cyan while a person talks, purple until Pepper answers (back
+to neutral after 8 s without an answer), white while Pepper talks; the head turns toward the
+person talking, driven by the `speech.*` events from Gemini's transcription; Pepper's own voice is
+never taken for a speaker),
 `high_five` (raised hand → arm up, wait for touch, celebrate), `greet` (new person
 → raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
 
@@ -277,8 +289,11 @@ Built-in reflexes: `attention` (eye colour and a head turn toward a person talki
 
 | Type | Payload |
 |---|---|
+| `speech.started` | `{at}` a person started talking; published by the Gemini bridge from Gemini's input transcription, `at` backdated by ~0.8 s for the transcription delay |
+| `speech.final` | `{text, started_at, ended_at}` the utterance ended (Gemini started answering, the turn ended, or 1.5 s without new words) |
+| `speech.aborted` | `{reason, started_at}` the "utterance" had no words (e.g. only a noise marker) |
 | `speech.keyword` | `{word, confidence}` from `recognize_keywords` |
-| `tts.started` / `tts.finished` | `{utterance_id, text}` |
+| `tts.started` / `tts.finished` | `{utterance_id, text}`; NAOqi TTS (`say`, reflex phrases) and Gemini's voice (`utterance_id` `gemini-N`, empty `text`, one pair per reply) |
 | `person.appeared` / `person.left` | `{person_id, distance_m, bearing_deg}` |
 | `person.waving` | `{person_id, side: left\|right\|center}` |
 | `person.looking_at_robot` | `{person_id, looking}` |
@@ -290,6 +305,7 @@ Built-in reflexes: `attention` (eye colour and a head turn toward a person talki
 | `task.finished` | `{task_id, kind, ok, error?}` |
 | `nav.status` | `{status, busy}` |
 | `motion.blocked` | `{reason}` – NAOqi stopped a base move, usually an obstacle inside the safety distance |
+| `follow.lost` / `follow.found` | `{unseen_s}` / `{people}` – while following, nobody perceived for 3 s / someone seen again (both forwarded to Gemini) |
 | `robot.fell` / `robot.pushed` / `battery.low` / `hot_joint` | sensor payloads |
 | `tablet.touched` | `{x, y}` |
 | `connection.lost` / `connection.restored` | – |
@@ -307,9 +323,10 @@ MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a su
   abilities, cameras, volume, gestures, transcript; `control` says whether this client may act)
   and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,
   `reflex {name, enabled}`, `perception {name, enabled}`,
-  `liveliness {preset}`, `ability {name, enabled}`, `autonomous_life {state}`,
+  `liveliness {preset}`, `ability {name, enabled}`,
   `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
   `stop_animation`, `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,
-  `say {text}`, `stop_speaking`, `volume {level}`, `mood {mood}`, `camera {camera, enabled}`.
+  `say {text}`, `stop_speaking`, `volume {level}`, `mood {mood}`, `camera {camera, enabled}`,
+  `mic {enabled}` (false mutes: the voice agent gets silence until it is switched back on).
   Allowed from loopback; other hosts need `--preview-token` sent as `X-Pepper-Token`
   (except `stop`, which any client may send).

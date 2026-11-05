@@ -81,6 +81,11 @@ ARM_POSES_DEG: dict[str, dict[str, float]] = {
 DEFAULT_ORTHO_SECURITY = 0.4
 DEFAULT_TANGENT_SECURITY = 0.1
 MOVE_FAILED_KEY = "ALMotion/MoveFailed"
+# Power hatch on the lower back (charger socket): 1 = open. NAOqi locks the wheels while it is
+# open and reports every base move as a "Safety" failure, which looks like an obstacle.
+HATCH_KEY = "Device/SubDeviceList/Platform/ILS/Sensor/Value"
+HATCH_OPEN = ("Pepper's charging hatch (the flap over the charger socket on its lower back) is open; "
+              "NAOqi locks the wheels until it is closed")
 
 
 def _mostly_done(x: float, y: float, theta_rad: float, moved: dict[str, float]) -> bool:
@@ -214,7 +219,18 @@ class Motion:
                 log.warning("goToPosture failed: %s", exc)
 
     # ------------------------------------------------------------- base
+    def hatch_open(self) -> bool:
+        try:
+            return bool(self.conn.service("ALMemory").getData(HATCH_KEY))
+        except Exception:
+            return False  # key missing (older body / fake): don't block on what we can't read
+
+    def check_base_ready(self) -> None:
+        if self.hatch_open():
+            raise RobotError(HATCH_OPEN)
+
     def move(self, vx: float, vy: float, vtheta: float, duration_s: float) -> dict[str, Any]:
+        self.check_base_ready()
         vx, vy, vtheta = (max(-1.0, min(1.0, float(v))) for v in (vx, vy, vtheta))
         duration_s = max(0.0, min(self.MAX_MOVE_DURATION_S, float(duration_s)))
         with self._vel_lock:
@@ -244,6 +260,7 @@ class Motion:
         odometry before/after and raise with the reason so the caller learns about it. A move
         stopped on purpose (stop_motion) returns with ``interrupted`` instead of raising.
         With ``wait_for_base=False`` it raises right away if another move is running."""
+        self.check_base_ready()
         if not self._move_lock.acquire(blocking=wait_for_base):
             raise RobotError("the base is busy with another move")
         try:

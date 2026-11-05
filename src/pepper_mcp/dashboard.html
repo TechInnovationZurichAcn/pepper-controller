@@ -199,7 +199,8 @@ input[type=range]{flex:1;accent-color:var(--accent)}
     <section>
       <h2>Hearing</h2>
       <div class="toggles">
-        <div class="row"><div class="label"><b>Microphone</b><small id="hear-sub">–</small></div></div>
+        <div class="row"><div class="label"><b>Microphone</b><small id="hear-sub">–</small></div>
+          <button class="switch ctl" id="sw-mic" role="switch" aria-checked="mixed" aria-label="Microphone on"></button></div>
       </div>
       <p class="note" id="hear-note" hidden></p>
     </section>
@@ -209,10 +210,6 @@ input[type=range]{flex:1;accent-color:var(--accent)}
       <div class="inline" style="margin-bottom:8px">
         <span class="empty" style="width:80px">Liveliness</span>
         <span class="seg" id="liveliness"></span>
-      </div>
-      <div class="inline" style="margin-bottom:6px">
-        <span class="empty" style="width:80px">Life</span>
-        <select id="life" class="ctl" aria-label="Autonomous life state"></select>
       </div>
       <div class="toggles" id="abilities"></div>
     </section>
@@ -226,7 +223,7 @@ input[type=range]{flex:1;accent-color:var(--accent)}
       <div class="toggles">
         <div class="row"><div class="label"><b>Track target</b><small id="trk-sub">off</small></div>
           <button class="switch ctl" role="switch" aria-checked="false" id="sw-track" aria-label="Tracking"></button></div>
-        <div class="row"><div class="label"><b>Follow person</b><small>drives to stay 0.6 m away</small></div>
+        <div class="row"><div class="label"><b>Follow person</b><small>drives to stay 0.5 m away</small></div>
           <button class="switch ctl" role="switch" aria-checked="false" id="sw-follow" aria-label="Follow person"></button></div>
       </div>
     </section>
@@ -251,6 +248,11 @@ input[type=range]{flex:1;accent-color:var(--accent)}
     <section>
       <h2>Conversation</h2>
       <div class="chat" id="chat"><div class="empty">Nothing heard yet</div></div>
+      <p class="note" id="chat-note">What people said is written by a separate transcriber that only
+        fills this log; Gemini answers from the audio itself. If a line is misheard but Pepper's reply
+        makes sense, only the log is off. If the reply is wrong too, Pepper really misheard: move
+        closer (within about 1&nbsp;m) and add names it keeps getting wrong to
+        <code>vocabulary.txt</code>.</p>
     </section>
 
     <section>
@@ -367,9 +369,9 @@ function renderHeader(st) {
   $("#h-awake").textContent = (st.awake ? "awake" : "resting") + (st.posture ? " · " + st.posture : "");
   $("#h-people").textContent = "people " + (st.people_count ?? "–");
   $("#h-speak").firstElementChild.className = "dot " + (st.speech && st.speech.speaking ? "live" : "");
-  const hearing = !!(S.voice_agent && S.mic && S.mic.running);
+  const hearing = !!(S.voice_agent && S.mic && S.mic.running && !S.mic.muted);
   $("#h-hear").firstElementChild.className = "dot " + (hearing ? "ok" : "bad");
-  $("#h-hear").lastChild.textContent = hearing ? "hearing" : "hearing off";
+  $("#h-hear").lastChild.textContent = hearing ? "hearing" : S.mic && S.mic.muted ? "mic muted" : "hearing off";
   const tasks = st.running_tasks || [];
   $("#h-tasks").textContent = "tasks " + tasks.length;
   $("#h-tasks").title = tasks.map(t => t.kind + ": " + t.label).join("\n");
@@ -401,12 +403,8 @@ function renderAutonomy(st) {
     for (const p of S.options.liveliness)
       seg.append(h("button", {class: "ctl", "data-preset": p, "aria-pressed": "false",
                               onclick: () => act("liveliness", {preset: p}, "Liveliness: " + p)}, p));
-    const life = $("#life");
-    for (const s of S.options.life_states) life.append(h("option", {value: s}, s));
-    life.addEventListener("change", () => act("autonomous_life", {state: life.value}, "Autonomous life: " + life.value));
   }
   for (const b of seg.children) b.setAttribute("aria-pressed", String(b.dataset.preset === st.liveliness_preset));
-  if (document.activeElement !== $("#life") && st.autonomous_life) $("#life").value = st.autonomous_life;
   const ab = S.abilities || {};
   syncRows($("#abilities"), S.options.abilities, n => n,
     n => row(nice(n), null, sw(ab[n], v => act("ability", {name: n, enabled: v}, nice(n) + (v ? " on" : " off")), n)),
@@ -433,11 +431,15 @@ function renderTracking(st) {
 function renderHearing() {
   const agent = S.voice_agent, mic = S.mic;
   $("#hear-sub").textContent = !mic || !mic.running ? "off (no microphone stream)"
+    : mic.muted ? "muted · Pepper hears nothing"
     : mic.mic + " head mic" + (agent ? " → " + agent : " · no voice agent connected");
+  const swMic = $("#sw-mic");
+  setSw(swMic, mic ? !mic.muted : null);
+  swMic.disabled = !mic;
   const note = $("#hear-note");
   note.hidden = !agent;
   note.textContent = agent ? "Pepper's microphone is streamed directly to " + agent + ", which does " +
-    "the listening; there is no separate speech-to-text to switch. The mic is muted while Pepper " +
+    "the listening; there is no speech-to-text step in between to switch. The mic is muted while Pepper " +
     "speaks, so wait until it has finished before talking." : "";
 }
 
@@ -588,6 +590,10 @@ document.addEventListener("keydown", e => {
 });
 $("#sw-track").addEventListener("click", e => act("tracking", {enabled: e.currentTarget.getAttribute("aria-checked") !== "true",
   target: $("#trk-target").value, mode: $("#trk-mode").value}));
+$("#sw-mic").addEventListener("click", e => {
+  const on = e.currentTarget.getAttribute("aria-checked") !== "true";
+  act("mic", {enabled: on}, on ? "Microphone on" : "Microphone muted");
+});
 $("#sw-follow").addEventListener("click", e => act("follow", {enabled: e.currentTarget.getAttribute("aria-checked") !== "true"}));
 for (const id of ["#trk-target", "#trk-mode"])
   $(id).addEventListener("change", () => {

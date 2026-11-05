@@ -9,7 +9,7 @@ feels like talking to a person. Two latency classes are designed for separately:
 | Class | Budget | Path |
 |---|---|---|
 | **Reflex** (high five, greet, touch reaction) | < 300 ms | robot event → laptop reflex → NAOqi call. No LLM in the loop. |
-| **Conversation** (hear → think → speak) | set by Gemini Live, not measured on this branch | head mic (16 kHz) → Gemini Live over the network (audio both ways, server-side turn detection) → voice (24 kHz) → speaker stream. The server adds only its own buffer (≈150 ms, §2.2) |
+| **Conversation** (hear → think → speak) | set by Gemini Live, not measured on this branch | head mic (16 kHz) → Gemini Live over the network (audio both ways, server-side turn detection) → voice (24 kHz) → speaker stream. The server adds only its own buffer (≤0.3 s prebuffer when a reply starts, §2.2) |
 
 Everything else (snapshots, state, long actions) is non-blocking: a tool call never
 waits on the robot unless the LLM asks it to (`wait=True`).
@@ -54,6 +54,8 @@ src/pepper_mcp/
     audio_in.py     ALAudioDevice remote module → PCM fan-out
     audio_out.py    ALAudioPlayer / volume / upload
     leds.py, tablet.py, tracker.py, navigation.py, awareness.py, system.py
+    tablet_relay.py TCP relay on the head so the tablet (not on the LAN) reaches the preview server
+    ssh.py          password SSH to the robot (SSH_ASKPASS), shared by uploads and the relay
     fake.py         in-memory fake NAOqi (tests, `--fake` dev mode)
   vision/
     hand_raise.py   optional laptop-side pose detector (MediaPipe) → gesture.hand_raised
@@ -76,19 +78,32 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   push a frame into the video input instead of returning an image.
 - **Out:** the 24 kHz voice goes to `AudioOut.speaker_stream` → `SpeakerStream`, which upsamples
   to the 48 kHz stereo `ALAudioDevice.sendRemoteBufferToOutput` wants. That call returns
-  immediately, so the stream paces itself 150 ms ahead of playback; a barge-in or reconnect
-  therefore leaves at most ~0.25 s queued on the robot.
+  immediately, so the stream paces itself 0.5 s ahead of playback: enough queued on the robot to
+  ride out a Wi-Fi hiccup on one call (150 ms was not; the voice broke off mid-sentence). A
+  barge-in or reconnect therefore leaves at most ~0.6 s queued on the robot. When the robot is
+  silent (reply start, or after a gap) the voice thread first gathers up to 0.3 s of audio
+  (`VOICE_PREBUFFER_S`, waiting at most that long), because Gemini's first chunks trickle in
+  at about real-time pace.
 - **Tools:** every MCP tool except the 13 in `EXCLUDED_TOOLS`: the speech output tools (Gemini is
   the voice), tools that would fight the session (blocking waits such as `recognize_keywords`,
   `record_clip`, `wait_for_event`, `wait_task`; QiChat dialogs; `camera_stream`), and `upload_audio`,
   which reads files on the laptop. Schemas go through unchanged
   (`parameters_json_schema`), so the server's limits apply. Actions (tools without
   `read_only_hint`, except `analyze_face`) are declared `NON_BLOCKING`: the model keeps talking
-  while they run, and their result goes back with `scheduling: SILENT` (`WHEN_IDLE` on failure).
+  while they run. Their result goes back with `scheduling: SILENT` if the model spoke in the
+  turn that called them (the bridge waits up to 0.8 s for it to start), otherwise `WHEN_IDLE`:
+  a model that calls `wave` before saying hello is waiting for the result and must get a turn
+  to answer. Failures are always `WHEN_IDLE`.
   A blocking call ends the model's turn and the turn after its result is where Gemini filled
   the air with "wave" or "no speech". Queries stay blocking because the answer depends on them.
   Tool calls run as tasks off the receive loop so the voice keeps flowing. Models without async
   function calling (`gemini-3.1-flash-live*`) get plain blocking declarations.
+- **Hearing:** input transcription gets the default language plus English as `language_codes`
+  hints and the phrases in `vocabulary.txt` as `custom_vocabulary`. Without hints it
+  auto-detects, which on Pepper's noisy mic drifts into the wrong language. It only feeds the
+  transcript and the `speech.*` events; the model listens to the audio itself and replies in
+  any language. Turn detection keeps 300 ms before speech and waits for 800 ms of silence, so
+  word onsets survive and short pauses don't split a sentence.
 - **Speech filter:** native audio speaks whatever the model generates, including placeholders.
   `SpeechFilter` holds the first audio of each turn until the output transcript (always on)
   shows real words, usually the first fragment. A turn that is only a marker (`<no speech>`),
@@ -101,9 +116,12 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   take a turn, which it would spend narrating the reflex. The persona forbids narrating tools,
   gestures or sensed events.
 - **Echo:** no AEC on the robot, so `EchoGate` drops mic audio while Gemini's voice plays, NAOqi
-  speaks (`tts.*`), a reflex runs or a sound-making task (gesture, animation, audio) is active,
-  plus a 0.4 s reverb tail. Every source expires on its own (≤ 30 s) so a missed event cannot
-  leave Pepper deaf.
+  speaks (`tts.*`, which also covers phrases said by reflexes and gestures) or a task that plays
+  sound is active (`play_audio`, `play_sine`, `run_behavior`, the `clown_dance` music), plus a
+  0.4 s reverb tail. Body movement alone (gestures, animations, reflexes) never mutes the mic,
+  so people can talk to Pepper while it moves. Every source expires on its own (≤ 30 s) so a missed event cannot
+  leave Pepper deaf. Separately, the dashboard's mic switch sets `rt.mic_muted`, which also sends
+  silence and never expires: it stays muted until switched back on.
 - **Sessions:** context-window compression keeps audio+video sessions alive past 2 min;
   `go_away` reconnects with the last session-resumption handle.
 
@@ -181,6 +199,8 @@ only cross-thread fan-out point and is thread-safe.
 * `move_to` / `turn` report the distance actually travelled; when NAOqi aborts a base move
   (`ALMotion/MoveFailed`, usually an obstacle in the safety distance) the task ends with
   `ok=false` and a `motion.blocked` event is published.
+* An explicit `move` / `move_to` / `turn` ends `follow_person` instead of being refused (the
+  dashboard still refuses); navigation keeps the base until `stop_navigation`.
 * The preview dashboard's actions are a fixed whitelist with the same limits as the tools
   (moves clamped to 5 s, refused while follow/navigation own the base). Only loopback clients
   may use them unless `--preview-token` is set; JSON-only bodies, an `Origin` check and an

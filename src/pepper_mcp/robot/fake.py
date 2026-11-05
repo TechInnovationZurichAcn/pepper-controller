@@ -73,6 +73,7 @@ class FakeMemory(FakeService):
             "Device/SubDeviceList/Battery/Charge/Sensor/Value": 0.87,
             "Device/SubDeviceList/Platform/Front/Sonar/Sensor/Value": 1.4,
             "Device/SubDeviceList/Platform/Back/Sonar/Sensor/Value": 2.1,
+            "Device/SubDeviceList/Platform/ILS/Sensor/Value": 0.0,  # power hatch closed
         }
         self.subscriber_works = subscriber_works
         self._subs: dict[str, FakeSignal] = {}

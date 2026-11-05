@@ -66,9 +66,9 @@ class Settings:
     #: "disable" puts autonomous life off so our motions are not fought; "keep" leaves it
     autonomous_life: str = field(default_factory=lambda: _env("AUTONOMOUS_LIFE", "disable") or "")
     #: liveliness preset applied at start: off | calm | lively
-    liveliness: str = field(default_factory=lambda: _env("LIVELINESS", "calm") or "calm")
+    liveliness: str = field(default_factory=lambda: _env("LIVELINESS", "lively") or "lively")
     wake_up: bool = field(default_factory=lambda: _env_bool("WAKE_UP", True))
-    language: str = field(default_factory=lambda: _env("LANGUAGE", "English") or "English")
+    language: str = field(default_factory=lambda: _env("LANGUAGE", "German") or "German")
     #: base safety bubble in metres. NAOqi's 0.4 m front bubble blocks almost every move indoors
     #: (anyone or anything within 40 cm aborts it with ALMotion/MoveFailed "Safety"); the old
     #: teleop drove fine with 0.1/0.05. Restored to NAOqi's defaults on a clean shutdown; a killed

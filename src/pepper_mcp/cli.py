@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fake", action="store_true", help="run against an in-memory fake robot (no hardware)")
     p.add_argument("--preview-port", type=int, help="serve the control dashboard (and MJPEG/audio/events) on this port")
     p.add_argument("--preview-token", help="token that lets other devices use the dashboard controls")
-    p.add_argument("--language", help="default conversation and robot TTS language, e.g. English (default)")
+    p.add_argument("--language", help="default conversation and robot TTS language, e.g. German (default) or English")
     p.add_argument("--no-audio", dest="audio_enabled", action="store_false", default=None, help="disable microphone stream")
     p.add_argument("--no-camera", dest="camera_enabled", action="store_false", default=None, help="disable cameras")
     p.add_argument("--no-perception", dest="perception_enabled", action="store_false", default=None)

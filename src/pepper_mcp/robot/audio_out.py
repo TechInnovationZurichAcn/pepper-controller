@@ -6,7 +6,6 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
-import tempfile
 import threading
 import time
 from typing import Any
@@ -14,6 +13,7 @@ from typing import Any
 import numpy as np
 
 from pepper_mcp.robot.connection import RobotConnection, RobotError
+from pepper_mcp.robot.ssh import SSH_OPTS, askpass_env, detached
 
 log = logging.getLogger(__name__)
 
@@ -94,26 +94,14 @@ class AudioOut:
 
     def _ssh_run(self, cmd: list[str], timeout_s: float) -> None:
         """Run scp/ssh non-interactively with the robot password via SSH_ASKPASS."""
-        askpass = tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False)
-        askpass.write(f"#!/bin/sh\necho '{self.ssh_password}'\n")
-        askpass.close()
-        os.chmod(askpass.name, 0o700)
-        env = dict(os.environ, SSH_ASKPASS=askpass.name, SSH_ASKPASS_REQUIRE="force")
-        env.setdefault("DISPLAY", ":0")
-        if os.name == "posix":
-            cmd = ["setsid", "-w", *cmd]
         try:
-            subprocess.run(cmd, env=env, check=True, timeout=timeout_s, stdin=subprocess.DEVNULL,
-                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            with askpass_env(self.ssh_password) as env:
+                subprocess.run(detached(cmd), env=env, check=True, timeout=timeout_s, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception as exc:
             raise RobotError(f"ssh/scp failed: {exc}") from exc
-        finally:
-            try:
-                os.unlink(askpass.name)
-            except OSError:
-                pass
 
-    SSH_OPTS = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10"]
+    SSH_OPTS = SSH_OPTS
 
     def upload(self, local_path: str, remote_name: str | None = None, remote_dir: str | None = None,
                timeout_s: float = 120) -> str:
@@ -152,9 +140,13 @@ class SpeakerStream:
     at once instead of at playback speed, so ``write`` paces itself and stays at most ``LEAD_S``
     ahead of what the robot plays: that bounds the audio still queued on the robot when the stream
     is cut (barge-in, stop), and keeps ``remaining()`` an honest "still audible" estimate.
+
+    ``LEAD_S`` is also the robot's cushion against gaps: Gemini delivers its voice in bursts and
+    each block crosses Wi-Fi, so a delivery or call stall longer than the queued audio runs the
+    robot dry and the voice breaks off mid-sentence. 150 ms was too little for that.
     """
 
-    LEAD_S = 0.15
+    LEAD_S = 0.5
     MAX_FRAMES = 4800  # 100 ms per call at 48 kHz, well under NAOqi's 16384-frame limit
 
     def __init__(self, device: Any, input_rate: int):
@@ -167,6 +159,11 @@ class SpeakerStream:
         self._play_until = 0.0
         self._generation = 0  # bumped by cancel(); a write in progress stops at its next block
         self._lock = threading.Lock()
+
+    @property
+    def generation(self) -> int:
+        """Changes on every ``cancel()``; pass it to ``write`` for audio gathered before a write."""
+        return self._generation
 
     def cancel(self) -> None:
         """Stop sending the chunk being written (barge-in, reconnect). What the robot already
@@ -189,9 +186,13 @@ class SpeakerStream:
         up = (prev[:, None] + (x - prev)[:, None] * steps).ravel()
         return np.repeat(np.round(up).astype(np.int16), 2)
 
-    def write(self, pcm: bytes) -> None:
-        """Queue ``pcm`` on the robot; blocks just enough to stay ``LEAD_S`` ahead of playback."""
-        generation = self._generation
+    def write(self, pcm: bytes, generation: int | None = None) -> None:
+        """Queue ``pcm`` on the robot; blocks just enough to stay ``LEAD_S`` ahead of playback.
+
+        ``generation`` (from the ``generation`` property) drops ``pcm`` if the stream was
+        cancelled since it was taken."""
+        if generation is None:
+            generation = self._generation
         with self._lock:
             stereo = self.convert(pcm)
             for i in range(0, len(stereo) // 2, self.MAX_FRAMES):

@@ -1,0 +1,16 @@
+# Words and names Pepper's transcriber should expect, one per line (restart to apply).
+# Add the names of people, places and things you talk about that keep getting misheard.
+# Only the [heard] transcript is biased; Gemini still answers in any language.
+Pepper
+Tic Tac Toe
+Tic-Tac-Toe
+SoftBank
+Accenture
+Zukunftstag
+Informatiker
+Informatikerin
+Applikationsentwicklung
+EFZ
+Berufsmaturität
+Schnupperlehre
+Scratch

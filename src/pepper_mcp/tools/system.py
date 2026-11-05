@@ -47,12 +47,6 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         return require(rt.perception, "perception").battery()
 
     @tool(mcp, ACTION)
-    def set_autonomous_life(state: Literal["disabled", "solitary", "interactive", "safeguard"]) -> dict[str, Any]:
-        """Set NAOqi autonomous life. 'disabled' = you fully control the body (default while this
-        server runs); 'solitary'/'interactive' = Pepper's built-in idle behaviours take over."""
-        return {"state": rt.awareness.set_life_state(state)}
-
-    @tool(mcp, ACTION)
     def set_liveliness(preset: Literal["off", "calm", "lively"],
                        basic_awareness: bool | None = None, background_movement: bool | None = None,
                        listening_movement: bool | None = None, speaking_movement: bool | None = None,

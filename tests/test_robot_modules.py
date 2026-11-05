@@ -7,6 +7,7 @@ import time
 import pytest
 
 from pepper_mcp.robot import audio_in
+from pepper_mcp.robot import tablet as tablet_mod
 from pepper_mcp.robot.audio_in import MicrophoneStream, decode_pcm, pcm_to_wav
 from pepper_mcp.robot.camera import encode_jpeg
 from pepper_mcp.robot.connection import RobotError
@@ -16,6 +17,7 @@ from pepper_mcp.robot.gestures import GestureContext, GestureRegistry, KeyframeG
 from pepper_mcp.robot.leds import parse_color, rgb_int
 from pepper_mcp.robot.motion import JOINT_LIMITS, Motion, arm_pose_angles, clamp_joint
 from pepper_mcp.robot.speech import Speech
+from pepper_mcp.robot.tablet import Tablet
 
 
 def test_decode_pcm_accepts_bytes_and_latin1_str() -> None:
@@ -427,3 +429,54 @@ def test_greet_reflex_plays_wave_gesture(runtime) -> None:  # type: ignore[no-un
     result = runtime.reflexes.get("greet").react(Event("person.appeared", {"person_id": 7, "distance_m": 1.2}))
     assert result == {"person_id": 7, "greeted": True}
     assert played == ["wave"]
+
+
+def _wait_for(cond, timeout_s: float = 2.0) -> None:  # type: ignore[no-untyped-def]
+    deadline = time.monotonic() + timeout_s
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+
+def test_tablet_wakes_a_sleeping_tablet_and_shows_the_page_again(monkeypatch: pytest.MonkeyPatch) -> None:
+    # On the robot a sleeping tablet answers showWebview with False and shows nothing (the
+    # tic-tac-toe board never appeared); the same call succeeds right after wakeUp.
+    monkeypatch.setattr(tablet_mod, "WAKE_RETRY_DELAY_S", 0.0)
+    robot = FakeRobot()
+    svc = robot.services["ALTabletService"]
+    svc.returns["showWebview"] = lambda *args: svc.count("wakeUp") > 0
+    tablet = Tablet(FakeConnection(robot))
+
+    tablet.show_url("http://198.18.0.1:8765/game/tictactoe?g=1")
+    _wait_for(lambda: svc.count("showWebview") >= 2)
+
+    assert svc.count("wakeUp") == 1
+    assert svc.count("showWebview") == 2
+    assert svc.last("showWebview") == ("http://198.18.0.1:8765/game/tictactoe?g=1",)
+
+
+def test_tablet_awake_shows_without_waking() -> None:
+    robot = FakeRobot()
+    svc = robot.services["ALTabletService"]
+    tablet = Tablet(FakeConnection(robot))
+
+    tablet.show_url("http://198.18.0.1:8765/x")
+    _wait_for(lambda: svc.count("showWebview") >= 1)
+    time.sleep(0.05)
+
+    assert svc.count("showWebview") == 1 and svc.count("wakeUp") == 0
+
+
+def test_tablet_gives_up_after_retries_and_logs(monkeypatch: pytest.MonkeyPatch,
+                                                caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setattr(tablet_mod, "WAKE_RETRY_DELAY_S", 0.0)
+    robot = FakeRobot()
+    svc = robot.services["ALTabletService"]
+    svc.returns["showWebview"] = False
+    tablet = Tablet(FakeConnection(robot))
+
+    with caplog.at_level("WARNING", logger="pepper_mcp.robot.tablet"):
+        tablet.show_url("http://198.18.0.1:8765/x")
+        _wait_for(lambda: "refused" in caplog.text)
+
+    assert svc.count("showWebview") == 1 + tablet_mod.WAKE_RETRIES
+    assert "refused" in caplog.text

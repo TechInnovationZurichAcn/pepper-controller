@@ -151,8 +151,6 @@ async def test_leds_tablet_tracking_navigation(client_ctx) -> None:  # type: ign
         assert _json(await client.call_tool("tablet_show_text", {"text": "Hello"}))["shown"] == "Hello"
         st = _json(await client.call_tool("follow_person", {"enabled": True, "distance_m": 0.8}))
         assert st["following"] is True
-        bad = await client.call_tool("move", {"vx": 0.2})
-        assert bad.is_error and "follow" in bad.content[0].text
         assert _json(await client.call_tool("follow_person", {"enabled": False}))["following"] is False
         nav = _json(await client.call_tool("navigate_to", {"x_m": 1.0, "wait": True}))
         assert nav["ok"] is True

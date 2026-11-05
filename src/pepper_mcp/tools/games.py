@@ -19,7 +19,8 @@ OWNER = "tictactoe"  # holds the tablet while a board is shown
 HINTS = {
     "interactive": "The board is on the tablet: the person taps a square and you answer automatically. "
                    "Spoken moves work too (tictactoe_move). Comment on game.move / game.over events.",
-    "static": "The tablet cannot reach the preview server (start pepper-mcp with --preview-port), so it "
+    "static": "The tablet cannot reach the preview server (no --preview-port, or the relay on the head "
+              "failed to start), so it "
               "shows a static board with numbered squares: ask the person for a number 1-9 and call "
               "tictactoe_move.",
     "unavailable": "No tablet: describe the board in words (rows) and take moves 1-9 by voice with tictactoe_move.",
@@ -38,9 +39,10 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
             # Held until tictactoe_stop: the model likes to put "Let's play!" on the tablet right
             # after starting, which would replace the board.
             tablet.hold(OWNER)
-            if rt.preview is not None and rt.preview.base_url:
+            base = rt.tablet_base_url()
+            if base:
                 # The game id in the query string defeats the WebView cache between games.
-                tablet.show_url(f"{rt.preview.base_url}/game/tictactoe?g={state['game_id']}", owner=OWNER)
+                tablet.show_url(f"{base}/game/tictactoe?g={state['game_id']}", owner=OWNER)
                 display = "interactive"
             else:
                 tablet.show_html(static_board_html(state), owner=OWNER)

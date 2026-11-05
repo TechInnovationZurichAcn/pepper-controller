@@ -39,7 +39,8 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
   robot module starts calling a new NAOqi method.
 - `reflexes/` (subclass `reflexes.base.Reflex`), `vision/` (optional MediaPipe), `preview.py`
   (HTTP side channel), `gemini_live.py`
-  (`pepper-mcp-gemini`, Gemini Live on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`).
+  (`pepper-mcp-gemini`, Gemini Live on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`;
+  system instruction read from `persona.txt` in the repo root at startup; transcription vocabulary from `vocabulary.txt`).
 
 ## Rules that are easy to break
 
@@ -47,6 +48,8 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
   lines there; everything else logs via `logging` (configured to stderr). Never `print` from robot,
   tool or reflex code. `verify.py` is a standalone CLI and may print.
 - **One process owns the robot.** Stop a running `pepper-mcp-gemini` before starting another.
+- **The tablet is not on the LAN.** Pages it loads must use `rt.tablet_base_url()` (relay on the
+  head, `robot/tablet_relay.py`), never `preview.base_url`, or the tablet shows a blank page.
 - **Never block before a timed motion.** `ALTabletService.showWebview` and other slow qi
   calls stall for seconds; run them off the motion thread or in a background task.
 - **ALMemory.subscriber raises `Invalid signature` on this robot.** Go through
@@ -56,6 +59,9 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
   long actions become `TaskRegistry` tasks that publish `task.finished`.
 - **ALTracker:** `registerTarget` resets the mode, so set `Move` mode after registering,
   right before `track()`.
+- **Charging hatch closed or nothing drives.** NAOqi locks the wheels while the flap on the lower
+  back is open and reports it as a "Safety" stop; `Motion.check_base_ready` turns that into a clear
+  error. Check it first when the base won't move.
 - **Base safety:** server starts with 0.15 / 0.05 m security distances and restores NAOqi's
   0.4 / 0.1 on shutdown (`motion.restore_defaults`). Keep the restore in every shutdown
   path; collision protection disabled for an emote must be re-enabled in `finally`.

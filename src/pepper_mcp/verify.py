@@ -116,6 +116,12 @@ def main(argv: list[str] | None = None) -> None:
     check("leds", lambda: (rt.leds.set("eyes", "green", 0.2), time.sleep(0.5), rt.leds.reset("eyes"), "ok")[-1])
     check("people", lambda: f"{len(rt.perception.people())} person(s) visible" if rt.perception.start() else "no extractors")
 
+    def hatch() -> str:
+        rt.motion.check_base_ready()  # raises with the reason when the flap is open
+        return "closed (base can move)"
+
+    check("charging hatch", hatch)
+
     def move() -> str:
         if args.no_move:
             return "skipped"

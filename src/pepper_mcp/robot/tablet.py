@@ -8,6 +8,7 @@ import html as html_lib
 import logging
 import queue
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
@@ -15,6 +16,10 @@ from urllib.parse import quote
 from pepper_mcp.robot.connection import RobotConnection, RobotError
 
 log = logging.getLogger(__name__)
+
+#: how often a show call rejected by a sleeping tablet is retried after ``wakeUp``
+WAKE_RETRIES = 3
+WAKE_RETRY_DELAY_S = 0.5
 
 
 def text_page(text: str, background: str = "#0b1020", color: str = "#eaf2ff", font_px: int = 64) -> str:
@@ -72,7 +77,18 @@ class Tablet:
 
         def _run() -> None:
             try:
-                getattr(tablet, fn)(*args)
+                ok = getattr(tablet, fn)(*args)
+                # A sleeping tablet (its screen turns off after a while) rejects showWebview with
+                # False and shows nothing; it accepts the same call right after wakeUp.
+                attempt = 0
+                while ok is False and attempt < WAKE_RETRIES:
+                    attempt += 1
+                    tablet.wakeUp()
+                    if attempt > 1:
+                        time.sleep(WAKE_RETRY_DELAY_S)
+                    ok = getattr(tablet, fn)(*args)
+                if ok is False:
+                    log.warning("tablet %s refused after waking the tablet %d times", fn, WAKE_RETRIES)
             except Exception as exc:
                 log.warning("tablet %s failed: %s", fn, exc)
 
@@ -125,6 +141,13 @@ class Tablet:
 
         # Queued behind pending shows, or a slow showWebview would bring the page back after it.
         self._enqueue(_run)
+
+    def wifi_connected(self) -> bool:
+        """Whether the tablet's own Wi-Fi is up (only then can it reach the LAN directly)."""
+        try:
+            return str(self.tablet.getWifiStatus()).upper() == "CONNECTED"
+        except Exception:
+            return False
 
     def execute_js(self, script: str) -> None:
         self._bg("executeJS", script)

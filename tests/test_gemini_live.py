@@ -17,7 +17,8 @@ pytest.importorskip("google.genai")
 from pepper_mcp.gemini_live import (
     EXCLUDED_TOOLS,
     KEY_VAR,
-    PERSONA,
+    PERSONA_FILE,
+    VOCABULARY_FILE,
     EchoGate,
     GeminiPepper,
     SpeechFilter,
@@ -25,9 +26,13 @@ from pepper_mcp.gemini_live import (
     clean_transcript,
     format_event,
     load_api_key,
+    load_persona,
+    load_vocabulary,
+    makes_sound,
     supports_async_tools,
     tool_declarations,
     tool_response,
+    transcription_languages,
 )
 from pepper_mcp.robot.audio_out import SpeakerStream
 from pepper_mcp.robot.fake import FakeRobot
@@ -161,6 +166,46 @@ async def test_background_tool_results_go_back_silent_and_failures_when_idle() -
     assert query.scheduling is None and "scheduling" not in query.response
 
 
+async def test_gestures_never_mute_the_mic_so_pepper_hears_while_moving() -> None:
+    assert not makes_sound("play_gesture", {"name": "wave"})
+    assert not makes_sound("play_animation", {"name": "animations/Stand/Gestures/Hey_1"})
+    assert makes_sound("play_gesture", {"name": "clown_dance"})  # music
+    assert makes_sound("play_audio", {"url": "x"})
+
+    class Slow:
+        async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+            await asyncio.sleep(60)
+
+    bridge = _bridge()
+    for name, gesture, muted in (("play_gesture", "wave", False), ("play_gesture", "clown_dance", True)):
+        task = asyncio.create_task(bridge._run_tools(RecordingSession(), Slow(), None, [Call(name, {"name": gesture})]))
+        await asyncio.sleep(0.05)
+        assert bridge.gate.muted() is muted, gesture
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        bridge.gate._quiet_at = 0.0
+
+
+async def test_tool_called_before_any_words_gets_a_turn_to_answer() -> None:
+    # "hello" → the model calls `wave` first and waits for the result before it speaks: a SILENT
+    # result would leave the greeting unanswered.
+    from google.genai import types
+
+    async with connected() as client:
+        bridge = _bridge()
+        bridge.background_tools = frozenset({"play_gesture"})
+        quiet, talking = RecordingSession(), RecordingSession()
+        await bridge._run_tools(quiet, client, client.rt, [Call("play_gesture", {"name": "wave"})], turn=0)
+        bridge._play([b"hi"])  # the model says hello while it waves
+        await bridge._run_tools(talking, client, client.rt, [Call("play_gesture", {"name": "nod"})], turn=0)
+        bridge._end_turn()
+        late = RecordingSession()  # result after the turn already ended with words
+        await bridge._run_tools(late, client, client.rt, [Call("play_gesture", {"name": "nod"})], turn=0)
+    assert quiet.tool_responses[0].scheduling == types.FunctionResponseScheduling.WHEN_IDLE
+    assert talking.tool_responses[0].scheduling == types.FunctionResponseScheduling.SILENT
+    assert late.tool_responses[0].scheduling == types.FunctionResponseScheduling.SILENT
+
+
 # ---------------------------------------------------------------- speech filter
 def _turn(f: SpeechFilter, *steps: str | bytes) -> list[bytes]:
     played: list[bytes] = []
@@ -214,7 +259,7 @@ async def test_cancelled_sound_tool_does_not_leave_the_mic_muted() -> None:
             await asyncio.sleep(60)
 
     bridge = _bridge()
-    task = asyncio.create_task(bridge._run_tools(RecordingSession(), Hanging(), None, [Call("play_gesture", {})]))
+    task = asyncio.create_task(bridge._run_tools(RecordingSession(), Hanging(), None, [Call("play_audio", {"url": "x"})]))
     await asyncio.sleep(0.05)
     assert bridge.gate.muted()
     task.cancel()
@@ -289,15 +334,33 @@ def test_silence_markers_are_not_shown_as_speech() -> None:
     assert clean_transcript("Hello there!{pause} Nice to see you.") == "Hello there! Nice to see you."
 
 
+def test_persona_file_is_in_the_repo_root() -> None:
+    assert PERSONA_FILE.name == "persona.txt"
+    assert (PERSONA_FILE.parent / "pyproject.toml").exists()
+
+
 def test_persona_forbids_narrating_actions_and_events() -> None:
-    assert "Act, don't narrate" in PERSONA
-    assert "say what you\nare doing" not in PERSONA
+    persona = load_persona("Pepper", "English")
+    assert "Handle, statt zu erzählen" in persona
+    assert "Sag nie den Namen eines Tools" in persona
 
 
-def test_persona_formats_with_literal_brace_examples() -> None:
-    # Literal "{pause}" in the persona must be escaped or str.format raises KeyError at startup.
-    system = PERSONA.format(name="Pepper", language="English")
+def test_persona_fills_language_and_keeps_literal_braces() -> None:
+    system = load_persona("Pepper", "German")
+    assert system.endswith("standardmässig auf Deutsch.")
     assert '"{pause}"' in system
+    assert "{language}" not in system
+
+
+def test_persona_is_read_from_the_given_file(tmp_path) -> None:
+    path = tmp_path / "persona.txt"
+    path.write_text("  You are {name}; speak {language}. Never say {pause}.\n", encoding="utf-8")
+    assert load_persona("Robo", "French", path) == "You are Robo; speak French. Never say {pause}."
+
+
+def test_missing_persona_file_stops_with_a_clear_error(tmp_path) -> None:
+    with pytest.raises(SystemExit, match="persona file"):
+        load_persona("Pepper", "English", tmp_path / "nope.txt")
 
 
 async def test_robot_events_reach_the_event_queue() -> None:
@@ -314,15 +377,16 @@ async def test_robot_events_reach_the_event_queue() -> None:
 
 
 # ---------------------------------------------------------------- echo gate
-def test_echo_gate_tracks_pepper_speech_and_reflexes() -> None:
+def test_echo_gate_tracks_pepper_speech_but_not_reflex_movement() -> None:
     gate = EchoGate(tail_s=0.05)
-    assert not gate.muted()
+    gate.on_event("reflex.triggered", {"reflex": "greet"})
+    assert not gate.muted()  # a reflex only moves the body; its speech arrives as tts.*
     gate.on_event("tts.started", {"utterance_id": "u1"})
-    gate.on_event("reflex.triggered", {"reflex": "high_five"})
+    gate.on_event("tts.started", {"utterance_id": "u2"})
     assert gate.muted()
     gate.on_event("tts.finished", {"utterance_id": "u1"})
-    assert gate.muted()  # reflex still running
-    gate.on_event("reflex.completed", {"reflex": "high_five"})
+    assert gate.muted()  # u2 still speaking
+    gate.on_event("tts.finished", {"utterance_id": "u2"})
     assert gate.muted()  # reverb tail
     time.sleep(0.08)
     assert not gate.muted()
@@ -333,8 +397,8 @@ def test_echo_gate_ignores_a_task_that_finished_before_its_tool_call_returned() 
     gate.on_event("task.finished", {"task_id": "gesture-9"})
     gate.start("task:gesture-9")
     assert not gate.muted()
-    gate.on_event("reflex.completed", {"reflex": "high_five"})
-    gate.start("reflex:high_five")  # reflexes repeat under the same key and must still mute
+    gate.finish("voice")
+    gate.start("voice")  # Gemini's voice repeats under the same key and must still mute
     assert gate.muted()
 
 
@@ -363,6 +427,24 @@ def test_muted_mic_sends_silence_so_turn_detection_keeps_its_timing() -> None:
         assert bridge.mic_q.empty()
         assert muted == bytes(640)  # same duration, no sound
         assert live == speech.tobytes()
+    finally:
+        loop.close()
+
+
+def test_dashboard_mute_sends_silence_until_unmuted(runtime) -> None:  # type: ignore[no-untyped-def]
+    bridge = _bridge()
+    bridge.rt = runtime
+    loop = asyncio.new_event_loop()
+    try:
+        bridge.loop = loop
+        speech = np.full(320, 1234, np.int16)
+        runtime.mic_muted = True
+        bridge._on_mic(speech, 16000, 0.0)
+        runtime.mic_muted = False
+        bridge._on_mic(speech, 16000, 0.0)
+        loop.run_until_complete(asyncio.sleep(0))
+        assert bridge.mic_q.get_nowait() == bytes(640)
+        assert bridge.mic_q.get_nowait() == speech.tobytes()
     finally:
         loop.close()
 
@@ -505,6 +587,70 @@ def test_speaker_stream_paces_itself_close_to_real_time() -> None:
     assert 0 < stream.remaining() <= SpeakerStream.LEAD_S + 0.11
 
 
+def test_speaker_stream_drops_audio_from_before_a_cancel() -> None:
+    dev = _device()
+    stream = SpeakerStream(dev, 24000)
+    generation = stream.generation
+    stream.cancel()  # barge-in while the voice thread was still gathering this audio
+    stream.write(bytes(4800), generation)
+    assert not dev.output
+
+
+def _robot_gaps(dev: Any, rate: int, slow_call: int = -1, slow_s: float = 0.0) -> list[float]:
+    """Wrap the fake device's output and return the silences the robot would play between blocks.
+    A block reaches the robot when its call returns; call number ``slow_call`` takes ``slow_s``."""
+    gaps: list[float] = []
+    play_end = [0.0]
+    calls = [0]
+    send = dev.sendRemoteBufferToOutput
+
+    def timed(frames: int, buffer: bytes) -> bool:
+        if calls[0] == slow_call:
+            time.sleep(slow_s)
+        calls[0] += 1
+        arrived = time.monotonic()
+        if play_end[0] and arrived > play_end[0]:
+            gaps.append(arrived - play_end[0])
+        play_end[0] = max(play_end[0], arrived) + frames / rate
+        return send(frames, buffer)
+
+    dev.sendRemoteBufferToOutput = timed
+    return gaps
+
+
+def test_gemini_voice_survives_a_slow_robot_call_mid_reply(runtime) -> None:  # type: ignore[no-untyped-def]
+    # A Wi-Fi hiccup on one speaker call must not be heard: the robot needs enough audio queued
+    # to cover it. With a 150 ms lead the voice broke off mid-sentence and then resumed.
+    bridge = _bridge()
+    bridge.rt = runtime
+    speaker = runtime.audio_out.speaker_stream(24_000)
+    gaps = _robot_gaps(speaker.device, speaker.rate, slow_call=8, slow_s=0.3)
+    import threading
+    threading.Thread(target=bridge._play_forever, args=(speaker,), daemon=True).start()
+    for _ in range(15):  # 1.5 s reply, delivered faster than real time
+        bridge.voice_q.put(bytes(4800))
+    time.sleep(2.0)
+    assert len(speaker.device.output) == 15 * 4800 * 2 * 2
+    assert gaps == []
+
+
+def test_gemini_voice_prebuffers_a_trickling_reply_start(runtime) -> None:  # type: ignore[no-untyped-def]
+    # The first chunks of a reply trickle in: starting on the first one alone ran the robot dry.
+    bridge = _bridge()
+    bridge.rt = runtime
+    speaker = runtime.audio_out.speaker_stream(24_000)
+    gaps = _robot_gaps(speaker.device, speaker.rate)
+    import threading
+    threading.Thread(target=bridge._play_forever, args=(speaker,), daemon=True).start()
+    chunk = bytes(2400)  # 50 ms, delivered at real-time pace with jitter
+    for delay in (0.0, 0.06, 0.06, 0.07, 0.05, 0.06, 0.04, 0.05, 0.05, 0.05):
+        time.sleep(delay)
+        bridge.voice_q.put(chunk)
+    time.sleep(0.8)
+    assert gaps == []
+    assert len(speaker.device.output) == 10 * 2400 * 2 * 2  # nothing lost
+
+
 def test_settings_of_removed_features_are_reported(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     from pepper_mcp.config import removed_env_vars
 
@@ -514,3 +660,118 @@ def test_settings_of_removed_features_are_reported(monkeypatch) -> None:  # type
     monkeypatch.setenv("PEPPER_STT", "faster-whisper")
     monkeypatch.setenv("PEPPER_MCP_TRANSPORT", "stdio")
     assert {"PEPPER_STT", "PEPPER_MCP_TRANSPORT"} <= set(removed_env_vars())
+
+
+# ---------------------------------------------------------------- speech events for reflexes
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _tracker(lag_s: float = 0.8, quiet_s: float = 1.5) -> tuple[Any, list[tuple[str, dict[str, Any]]], _Clock]:
+    from pepper_mcp.gemini_live import UtteranceTracker
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    clock = _Clock()
+    tracker = UtteranceTracker(lambda t, d: events.append((t, d)), lag_s=lag_s, quiet_s=quiet_s, clock=clock)
+    return tracker, events, clock
+
+
+def test_gemini_transcription_becomes_the_listeners_speech_events() -> None:
+    # The attention reflex turns toward whoever talks on speech.started / speech.final.
+    tracker, events, clock = _tracker()
+    tracker.heard(" Hey,")
+    clock.now += 0.4
+    tracker.heard(" Pepper.")
+    clock.now += 0.3
+    tracker.end()  # Gemini starts answering: the person is done
+    assert [t for t, _ in events] == ["speech.started", "speech.final"]
+    started, final = events[0][1], events[1][1]
+    assert started["at"] == pytest.approx(1000.0 - 0.8)  # transcripts lag the voice
+    assert final["started_at"] == started["at"]  # the reflex pairs them by started_at
+    assert final["ended_at"] == pytest.approx(1000.4)
+    assert final["text"] == "Hey, Pepper."
+    tracker.end()
+    assert len(events) == 2  # nothing open: no duplicate final
+
+
+def test_utterance_closes_after_a_quiet_gap_when_gemini_does_not_answer() -> None:
+    tracker, events, clock = _tracker(quiet_s=1.5)
+    tracker.heard("hm, what was that")
+    clock.now += 1.0
+    tracker.poll()
+    assert [t for t, _ in events] == ["speech.started"]
+    clock.now += 0.6
+    tracker.poll()
+    assert [t for t, _ in events] == ["speech.started", "speech.final"]
+
+
+def test_silence_marker_transcript_is_aborted_not_final() -> None:
+    tracker, events, _clock = _tracker()
+    tracker.heard("<noise>")
+    tracker.end()
+    assert [t for t, _ in events] == ["speech.started", "speech.aborted"]
+    assert events[1][1]["started_at"] == events[0][1]["at"]
+
+
+def test_gemini_voice_publishes_tts_events_once_per_reply(runtime) -> None:  # type: ignore[no-untyped-def]
+    # Network gaps between chunks of one reply must not flicker the "speaking" eyes.
+    bridge = _bridge()
+    bridge.rt = runtime
+    seen: list[str] = []
+    runtime.bus.subscribe("tts.*", lambda e: seen.append(e.type))
+    speaker = runtime.audio_out.speaker_stream(24_000)
+    import threading
+    threading.Thread(target=bridge._play_forever, args=(speaker,), daemon=True).start()
+    chunk = bytes(4800)  # 0.1 s at 24 kHz
+    bridge.voice_q.put(chunk)
+    time.sleep(0.05)
+    bridge.voice_q.put(chunk)  # arrives while the first is still audible
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline and "tts.finished" not in seen:
+        time.sleep(0.02)
+    time.sleep(0.2)
+    assert seen == ["tts.started", "tts.finished"]
+
+
+# ---------------------------------------------------------------- hearing accuracy
+def test_transcription_hints_default_language_first_with_english_fallback() -> None:
+    assert transcription_languages("German") == ["de-DE", "en-US"]
+    assert transcription_languages("german") == ["de-DE", "en-US"]
+    assert transcription_languages("English") == ["en-US"]
+    assert transcription_languages("Klingon") == []  # unknown: keep auto-detection
+
+
+def test_vocabulary_skips_comments_blanks_and_duplicates(tmp_path) -> None:
+    path = tmp_path / "vocabulary.txt"
+    path.write_text("# comment\n\n  Pepper \nTic Tac Toe\nPepper\n", encoding="utf-8")
+    assert load_vocabulary(path) == ["Pepper", "Tic Tac Toe"]
+    assert load_vocabulary(tmp_path / "missing.txt") == []
+
+
+def test_repo_vocabulary_file_loads() -> None:
+    assert VOCABULARY_FILE.parent == PERSONA_FILE.parent
+    assert "Pepper" in load_vocabulary()
+
+
+def test_live_config_hints_language_and_vocabulary_and_keeps_word_onsets() -> None:
+    args = argparse.Namespace(model="m", voice="Kore", persona="Pepper", no_video=True, no_transcripts=False)
+    bridge = GeminiPepper(make_settings(language="German"), args, api_key="k")
+    config = bridge._config([], "sys")
+    tr = config.input_audio_transcription
+    assert tr.language_codes == ["de-DE", "en-US"]
+    assert "Pepper" in tr.custom_vocabulary
+    # No output language is pinned: Pepper answers in whatever language it is spoken to.
+    assert config.speech_config.language_code is None
+    vad = config.realtime_input_config.automatic_activity_detection
+    assert vad.prefix_padding_ms >= 300 and vad.silence_duration_ms >= 800
+
+
+def test_german_is_the_default_language(monkeypatch) -> None:
+    from pepper_mcp.config import Settings
+
+    monkeypatch.delenv("PEPPER_LANGUAGE", raising=False)
+    assert Settings().language == "German"

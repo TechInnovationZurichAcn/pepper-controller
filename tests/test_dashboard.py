@@ -86,13 +86,30 @@ def test_bad_actions_are_rejected(runtime, name: str, args: dict[str, Any], msg:
 def test_hearing_card_shows_mic_voice_agent_and_conversation(runtime) -> None:  # type: ignore[no-untyped-def]
     st = dashboard.state(runtime)
     assert st["voice_agent"] is None and st["transcript"] == []
-    assert st["mic"] == {"running": True, "mic": "front"}
+    assert st["mic"] == {"running": True, "mic": "front", "muted": False}
     runtime.voice_agent = "Gemini Live (gemini-3.8-live)"
     runtime.transcript.append({"role": "user", "text": "hi Pepper", "at": 1.0})
     st = dashboard.state(runtime)
     assert st["voice_agent"] == "Gemini Live (gemini-3.8-live)"
     assert st["transcript"][-1]["text"] == "hi Pepper"
     assert "listening" not in dashboard.ACTIONS  # no server-side STT left to switch
+
+
+def test_conversation_card_explains_the_transcript_is_only_a_log() -> None:
+    with open(dashboard.HTML_PATH, encoding="utf-8") as fh:
+        html = fh.read()
+    assert 'id="chat-note"' in html
+    assert "Gemini answers from the audio itself" in html
+    assert "vocabulary.txt" in html
+
+
+def test_mic_switch_mutes_and_unmutes(runtime) -> None:  # type: ignore[no-untyped-def]
+    assert dashboard.run_action(runtime, "mic", {"enabled": False}) == {"muted": True}
+    assert runtime.mic_muted and dashboard.state(runtime)["mic"]["muted"]
+    assert dashboard.run_action(runtime, "mic", {"enabled": True}) == {"muted": False}
+    assert not runtime.mic_muted
+    with pytest.raises(dashboard.ActionError, match="enabled"):
+        dashboard.run_action(runtime, "mic", {})
 
 
 def test_move_is_clamped_to_watchdog(runtime, monkeypatch) -> None:  # type: ignore[no-untyped-def]

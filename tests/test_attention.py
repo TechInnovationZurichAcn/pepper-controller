@@ -194,3 +194,41 @@ def test_blocked_body_turn_still_turns_the_head(attention) -> None:  # type: ign
     looks = _settled(looks, 1)
     _, x, y = looks[0]
     assert y > 1.0 and abs(x) < 0.01  # head toward 90 degrees left
+
+
+def test_own_voice_is_not_taken_for_a_speaker(attention) -> None:  # type: ignore[no-untyped-def]
+    # Gemini's voice is not NAOqi TTS: only its tts.* events say Pepper is talking.
+    reflex, looks, _ = attention
+    reflex.on_event(Event("tts.started", {"utterance_id": "gemini-1"}))
+    reflex.on_event(_sound(90.0))
+    reflex.on_event(Event("tts.finished", {"utterance_id": "gemini-1"}))
+    t0 = time.time()
+    reflex.on_event(Event("speech.started", {"at": t0}))
+    reflex.on_event(Event("speech.final", {"text": "hi", "started_at": t0, "ended_at": time.time()}))
+    assert _settled(looks, 1) == []  # the only sound heard was Pepper itself
+
+
+def test_thinking_eyes_fall_back_when_no_answer_comes(attention, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from pepper_mcp.reflexes import attention as attention_mod
+
+    reflex, _, _ = attention
+    monkeypatch.setattr(attention_mod, "THINKING_TIMEOUT_S", 0.1)
+    moods: list[str] = []
+    reflex.rt.leds.set_mood = lambda mood: moods.append(mood)
+    t0 = time.time()
+    reflex.on_event(Event("speech.started", {"at": t0}))
+    reflex.on_event(Event("speech.final", {"text": "hm", "started_at": t0, "ended_at": t0}))
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline and moods[-1:] != ["neutral"]:
+        time.sleep(0.02)
+    assert moods == ["listening", "thinking", "neutral"]
+
+
+def test_a_lost_tts_finished_does_not_deafen_the_reflex_forever(attention, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from pepper_mcp.reflexes import attention as attention_mod
+
+    reflex, _, _ = attention
+    reflex.on_event(Event("tts.started", {"utterance_id": "gemini-9"}))
+    assert reflex._pepper_talking()
+    monkeypatch.setattr(attention_mod, "TALKING_MAX_S", 0.0)
+    assert not reflex._pepper_talking()

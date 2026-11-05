@@ -2,11 +2,12 @@
 person who is talking to Pepper.
 
 Sound localisation fires for every door, chair and keyboard, so a sound alone never moves
-the head. The head only turns for an utterance the listener confirmed as speech: as soon
-as a voice starts, Pepper turns to a visible person standing in the direction it came from;
-if nobody is visible there it waits for the transcript (``speech.final``) before turning
-toward the voice, so noise that the listener rejects (too short, empty transcript) never
-turns the head."""
+the head. The head only turns for an utterance the voice agent confirmed as speech (Gemini
+Live's transcription, see ``gemini_live.UtteranceTracker``): as soon as a voice starts, Pepper
+turns to a visible person standing in the direction it came from; if nobody is visible there it
+waits for the transcript (``speech.final``) before turning toward the voice, so noise without
+words (``speech.aborted``) never turns the head. Pepper's own voice (``tts.*`` events, from NAOqi
+TTS or Gemini) is never taken for a speaker."""
 
 from __future__ import annotations
 
@@ -26,6 +27,11 @@ log = logging.getLogger(__name__)
 UTTERANCE_TIMEOUT_S = 20.0
 #: speech.final / speech.aborted carry the started_at of their speech.started
 SAME_UTTERANCE_S = 0.05
+#: "thinking" eyes return to neutral if no answer starts this long after speech.final (the voice
+#: agent may decide that what it heard was not meant for it)
+THINKING_TIMEOUT_S = 8.0
+#: a voice whose tts.finished never arrived stops counting as "Pepper is talking" after this long
+TALKING_MAX_S = 60.0
 
 
 def _angle_diff(a: float, b: float) -> float:
@@ -57,13 +63,15 @@ class AttentionReflex(Reflex):
         super().__init__(rt)
         self._state = threading.Lock()
         self._sounds: deque[dict[str, Any]] = deque(maxlen=64)
-        # The utterance the listener is currently capturing. STT runs behind the VAD, so the
+        # The utterance currently being heard. Transcription runs behind the voice, so the
         # next speech.started can arrive before the previous utterance's speech.final.
         self._utterance_started: float | None = None
         self._last_ended_start = 0.0  # started_at of the newest utterance that already ended
         self._aimed = False
         self._aimed_person: Any = None
         self._last_talk = 0.0
+        self._talking: dict[Any, float] = {}  # utterance id of Pepper's own voice -> started
+        self._mood_gen = 0  # bumped by every mood change; a stale thinking timeout does nothing
         self._look_lock = threading.Lock()
         self._look_target: tuple[Any, ...] | None = None
         self._look_wake = threading.Event()
@@ -116,14 +124,17 @@ class AttentionReflex(Reflex):
             at = float(d.get("at") or time.time())
             if at <= self._last_ended_start + SAME_UTTERANCE_S:
                 return None  # handled after its own end event
+            self._mood_gen += 1
             if leds:
                 leds.set_mood("listening")
             self._utterance_started = at
             self._aimed, self._aimed_person = False, None
             return self._aim(at, None, confirmed=False)
         if t == "speech.final":
+            self._mood_gen += 1
             if leds:
                 leds.set_mood("thinking")
+                self._thinking_timeout(self._mood_gen)
             start = float(d.get("started_at") or time.time())
             current = self._ends_current(start)
             result = None
@@ -135,7 +146,7 @@ class AttentionReflex(Reflex):
             self._last_talk = time.time()
             return result
         if t == "speech.aborted":
-            # noise the listener rejected: forget it without moving
+            # sound without words: forget it without moving
             start = d.get("started_at")
             if start is None or self._ends_current(float(start)):
                 self._utterance_started = None
@@ -143,16 +154,36 @@ class AttentionReflex(Reflex):
                 self._last_ended_start = max(self._last_ended_start, float(start))
             return None
         if t == "tts.started":
+            self._talking[d.get("utterance_id")] = time.monotonic()
+            self._mood_gen += 1
             if leds:
                 leds.set_mood("speaking")
             return None
         if t == "tts.finished":
-            if leds and not rt.speech.speaking:
+            self._talking.pop(d.get("utterance_id"), None)
+            self._mood_gen += 1
+            if leds and not rt.speech.speaking and not self._pepper_talking():
                 leds.set_mood("neutral")
             return None
         if t == "person.appeared":
             return self._on_new_person(d)
         return None
+
+    def _pepper_talking(self) -> bool:
+        now = time.monotonic()
+        self._talking = {k: t for k, t in self._talking.items() if now - t < TALKING_MAX_S}
+        return bool(self._talking)
+
+    def _thinking_timeout(self, gen: int) -> None:
+        def _expire() -> None:
+            with self._state:
+                if gen == self._mood_gen and self.enabled and self.rt.leds is not None:
+                    self._mood_gen += 1
+                    self.rt.leds.set_mood("neutral")
+
+        timer = threading.Timer(THINKING_TIMEOUT_S, _expire)
+        timer.daemon = True
+        timer.start()
 
     def _ends_current(self, started_at: float) -> bool:
         return self._utterance_started is not None and abs(started_at - self._utterance_started) <= SAME_UTTERANCE_S
@@ -164,7 +195,7 @@ class AttentionReflex(Reflex):
         return start
 
     def _on_sound(self, d: dict[str, Any]) -> Any:
-        if self.rt.speech.speaking:
+        if self.rt.speech.speaking or self._pepper_talking():
             return None  # that sound is probably us
         if d.get("confidence", 0) < self.params["sound_confidence"] or d.get("energy", 0) < self.params["min_sound_energy"]:
             return None

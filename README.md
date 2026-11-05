@@ -25,6 +25,7 @@ This branch contains only the server and its voice agent. The keyboard teleop li
 
 ```bash
 cd pepper-controller && source .venv/bin/activate     # the cloned repo (step 3)
+# close the charging hatch (flap on the lower back): while it is open Pepper cannot drive, turn or follow
 # power Pepper on, wait for it to stand up, press the chest button once → it says its IP
 ping -c 2 <PEPPER_IP> && nc -zv <PEPPER_IP> 9559
 pepper-mcp-verify --ip <PEPPER_IP> --no-move          # optional sanity check
@@ -135,8 +136,12 @@ fake robot. A failure here is an install or key problem, not a robot problem.
 * **Emergency stop** – the button at the back of the neck. Press it if Pepper does anything
   unsafe: the motors stop and the robot goes to a safe rest. Release it, then the server's
   `wake_up` tool (or a server restart) brings the motors back.
-* **Charging hatch** – the flap at the back of the base. While it is open the base
-  **refuses to move**.
+* **Charging hatch** – the flap over the charger socket at the back of the base. **It must be
+  closed for Pepper to move:** while it is open NAOqi locks the wheels, so driving, turning and
+  following do nothing (arms, head and gestures still work). NAOqi reports it as a "Safety" stop,
+  which looks like an obstacle; the server reads the hatch sensor instead and answers base
+  commands with "charging hatch is open", shows `charging_hatch_open` in `robot_status` and
+  warns at start. `pepper-mcp-verify` checks it too.
 * **Ethernet port** – under the cover on the back of the head.
 
 ### 6. Power on
@@ -385,7 +390,9 @@ isolation (step 7). What every check proves and its fallback:
 [`docs/ROBOT_VERIFICATION.md`](docs/ROBOT_VERIFICATION.md).
 
 Playing sound files and showing pages on the tablet copies files onto the robot over SSH
-as user `nao`, password `pepper` (the factory default). If your robot's password was
+as user `nao`, password `pepper` (the factory default). With `--preview-port` the server
+also starts a small relay on the head over SSH, because the tablet cannot reach the laptop
+directly. If your robot's password was
 changed, export `PEPPER_SSH_PASSWORD=<password>` (and `PEPPER_SSH_USER` if needed) before
 starting the server.
 
@@ -424,7 +431,7 @@ The free API tier has no Google Search quota, so search is not enabled.
    posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
    Below it: live camera (top/bottom/depth), head and base nudge pads, a say box and volume,
    switches for every reflex (wave/greet, high five, attention, touch, battery), the Hearing card
-   (microphone and voice agent), liveliness and autonomous abilities, tracking/follow and
+   (microphone and voice agent, with a switch to mute the mic), liveliness and autonomous abilities, tracking/follow and
    perception extractors, one button per gesture, mood lights, the conversation panel (what
    Gemini heard and said), sensors and a filterable event log.
    Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
@@ -464,8 +471,8 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | `--fake` | `PEPPER_FAKE` | off | in-memory robot, no hardware |
 | `--preview-port` | `PEPPER_PREVIEW_PORT` | 0 (off) | control dashboard, MJPEG, WAV, SSE |
 | `--preview-token` | `PEPPER_PREVIEW_TOKEN` | empty | lets other devices use the dashboard controls (`/?token=…`); empty = laptop only |
-| `--language` | `PEPPER_LANGUAGE` | `English` | default conversation and robot TTS language |
-| `--liveliness` | `PEPPER_LIVELINESS` | `calm` | `off`, `calm`, `lively` autonomous movement |
+| `--language` | `PEPPER_LANGUAGE` | `German` | default conversation and robot TTS language; also the first language hint (plus English) for Gemini's input transcript. Pepper still answers in whatever language it is spoken to |
+| `--liveliness` | `PEPPER_LIVELINESS` | `lively` | `off`, `calm`, `lively` autonomous movement |
 | `--keep-autonomous-life` | `PEPPER_AUTONOMOUS_LIFE=keep` | disable | leave NAOqi autonomous life on |
 | `--safety-front` / `--safety-side` | `PEPPER_SAFETY_FRONT_M` / `PEPPER_SAFETY_SIDE_M` | 0.15 / 0.05 | base safety distances in m (NAOqi: 0.4 / 0.1, which blocks most indoor moves) |
 | `--reflexes-off a,b` / `--no-reflexes` | `PEPPER_REFLEXES_OFF` / `PEPPER_REFLEXES` | all on | disable reflexes |
@@ -493,9 +500,15 @@ The variables of removed features (`PEPPER_STT*`, `PEPPER_VAD_*`, `PEPPER_BARGE_
           ──▶ MCP tool (in-process) ──▶ robot;  robot events ──▶ short notes to Gemini
 ```
 
-Gemini's instructions (persona, speaking rules, safety) are in
-[`src/pepper_mcp/gemini_live.py`](src/pepper_mcp/gemini_live.py). `list_event_types` and
-`pepper://events/types` document every event.
+Gemini's instructions (persona, speaking rules, safety) are in [`persona.txt`](persona.txt) in the
+repository root: edit it and restart `pepper-mcp-gemini`. `{language}` and `{name}` (the
+`--persona` value) are filled in; any other text, braces included, is sent as written.
+Names and words Pepper keeps mishearing go in [`vocabulary.txt`](vocabulary.txt) (one per line,
+`#` comments), which biases the input transcriber; restart to apply. That transcriber only writes
+the `[heard]` lines and the dashboard's Conversation card: Gemini answers from the audio itself.
+So a misheard `[heard]` line with a sensible reply is only a log problem; a wrong reply means
+Pepper really misheard, and the fix is usually standing closer (within about 1 m).
+`list_event_types` and `pepper://events/types` document every event.
 
 ## Project layout
 
@@ -537,15 +550,17 @@ ruff check src tests
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
 | Pepper says it is not connected | it is not on any network: step 7 |
 | connects, but Gemini hears nothing | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 10; router isolation |
-| Pepper does not drive / `motion.blocked` | charging hatch open, charger plugged in, or something inside the safety distance; lower it with `--safety-front` or the `set_safety` tool when the space is clear |
+| Pepper does not drive, turn or follow / "charging hatch is open" / `motion.blocked` | **close the charging hatch** (most common: NAOqi locks the wheels while it is open), unplug the charger, or something is inside the safety distance; lower it with `--safety-front` or the `set_safety` tool when the space is clear |
 | motors limp, nothing moves | emergency stop at the back of the neck is pressed: release it, then `wake_up` |
 | head snaps back after moves | `set_liveliness off`, or start with `--liveliness off` |
+| tic-tac-toe (or another laptop page) shows a blank white page on the tablet | the tablet can only reach the head, through the relay the server starts over SSH: look for `tablet relay disabled` / `did not start` in the log (SSH password, `--preview-port` set?) and restart `pepper-mcp-gemini` |
 | `ssh/scp failed` in the log, no sound files or tablet page | `openssh` client missing (step 1), or the robot password is not `pepper`: set `PEPPER_SSH_PASSWORD` |
 | `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 7) |
 | Internet drops when the router cable is plugged in | the wired profile took the default route: use `pepper-router` (option B, step B2), check `ip route get 1.1.1.1` says `dev wl…` |
 | Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step B4 |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
 | Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 12); nothing else answers |
+| Pepper mishears words | `[heard]` wrong but the reply fits: only the transcript is off; add the words to `vocabulary.txt`. Reply wrong too: talk from within about 1 m (the fans drown speech further away) and check the `microphone(s) … look dead` log line |
 | Pepper hears itself | the mic is muted while Pepper makes sound, plus a 0.4 s tail: talk after it has finished speaking |
 | `GEMINI_LIVE_KEY is not set` | `.env` missing or you are not in the repo root: step 4 |
 | `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
@@ -23,12 +22,27 @@ DIRECTIONS = {"left": (45, 0), "right": (-45, 0), "slightly_left": (20, 0), "sli
               "up_right": (-35, -20), "down_left": (30, 20), "down_right": (-30, 20)}
 
 
+JOINT_NAMES = Literal["HeadYaw", "HeadPitch", "LShoulderPitch", "LShoulderRoll", "LElbowYaw", "LElbowRoll",
+                      "LWristYaw", "LHand", "RShoulderPitch", "RShoulderRoll", "RElbowYaw", "RElbowRoll",
+                      "RWristYaw", "RHand", "HipRoll", "HipPitch", "KneePitch"]
+
+
 def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
-    def _check_base_free() -> None:
-        if rt.tracker and rt.tracker.following:
-            raise ValueError("follow_person is active and owns the base; disable it first")
+    def _ensure_awake() -> None:
+        # A resting robot has its motors off: every command would "succeed" without moving.
+        if not rt.motion.is_awake():
+            rt.motion.wake_up()
+
+    def _claim_base() -> dict[str, Any]:
+        """An explicit drive command wins over following; navigation must be stopped on purpose."""
         if rt.navigator and rt.navigator.busy:
             raise ValueError("navigation owns the base; stop_navigation first")
+        rt.motion.check_base_ready()  # up front: move_to/turn run as background tasks
+        _ensure_awake()
+        if rt.tracker and rt.tracker.following:
+            rt.tracker.stop()
+            return {"stopped_following": True}
+        return {}
 
     @tool(mcp, MOVES_ROBOT)
     def move(vx: Annotated[float, Field(ge=-1, le=1, description="forward(+)/back(-) fraction of max speed")] = 0.0,
@@ -37,10 +51,11 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
              duration_s: Annotated[float, Field(gt=0, le=5, description="auto-stop after this many seconds")] = 1.0
              ) -> dict[str, Any]:
         """Drive the wheeled base at a velocity for a short time (max 5 s, auto-stops). Max speed is
-        ~0.35 m/s. Use small values near people. For precise displacements use move_to. If NAOqi
+        ~0.35 m/s. Use small values near people. For precise displacements use move_to. Stops
+        follow_person if it is active. If NAOqi
         blocks the move (obstacle in the safety distance) a motion.blocked event is published."""
-        _check_base_free()
-        return rt.motion.move(vx, vy, vtheta, duration_s)
+        released = _claim_base()
+        return {**rt.motion.move(vx, vy, vtheta, duration_s), **released}
 
     @tool(mcp, MOVES_ROBOT)
     def move_to(x_m: Annotated[float, Field(ge=-3, le=3, description="metres forward(+)/back(-)")] = 0.0,
@@ -50,19 +65,19 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         """Move a relative distance using odometry (ALMotion.moveTo). Background task unless wait.
         The result (or task.finished) says how far the robot really moved; ok=false with the reason
         when NAOqi stopped it early (usually an obstacle within the safety distance)."""
-        _check_base_free()
+        released = _claim_base()
         task = rt.tasks.run("move_to", f"moveTo({x_m}, {y_m}, {theta_deg}deg)",
                             lambda: rt.motion.move_relative(x_m, y_m, rad(theta_deg)), cancel=rt.motion.stop_base)
-        return task_result(task, wait, 60)
+        return {**task_result(task, wait, 60), **released}
 
     @tool(mcp, MOVES_ROBOT)
     def turn(degrees: Annotated[float, Field(ge=-360, le=360, description="left positive")], wait: bool = False) -> dict[str, Any]:
         """Turn in place by an angle (left positive), e.g. 180 to turn around. Reports the angle
         actually turned; ok=false with the reason if NAOqi stopped it early."""
-        _check_base_free()
+        released = _claim_base()
         task = rt.tasks.run("turn", f"turn {degrees}deg",
                             lambda: rt.motion.move_relative(0.0, 0.0, rad(degrees)), cancel=rt.motion.stop_base)
-        return task_result(task, wait, 30)
+        return {**task_result(task, wait, 30), **released}
 
     @tool(mcp, ACTION)
     def go_to_posture(name: Literal["StandInit", "Stand", "StandZero", "Crouch"] = "StandInit",
@@ -125,8 +140,35 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                          speed: Annotated[float, Field(gt=0, le=1, description="fraction of max joint speed")] = 0.3
                          ) -> dict[str, float]:
         """Set joints to absolute angles (degrees), clamped to safe limits. See list_joints."""
+        _ensure_awake()
         result = rt.motion.set_angles({k: rad(v) for k, v in angles.items()}, speed)
         return {k: deg(v) for k, v in result.items()}
+
+    @tool(mcp, ACTION)
+    def move_joint(joint: JOINT_NAMES,
+                   degrees: Annotated[float, Field(ge=-180, le=180, description="target angle, or the change if relative")],
+                   relative: bool = False,
+                   speed: Annotated[float, Field(gt=0, le=1, description="fraction of max joint speed")] = 0.3
+                   ) -> dict[str, Any]:
+        """Move one body part. Head: HeadYaw left(+)/right(-), HeadPitch up(-)/down(+). Arms (L/R):
+        ShoulderPitch up(-)/down(+), ShoulderRoll out (L +, R -), ElbowRoll bend (L -, R +),
+        ElbowYaw and WristYaw rotate; LHand/RHand use 0 (closed) to 100 (open) instead of degrees.
+        Torso: HipPitch lean forward(+), HipRoll lean left(+), KneePitch crouch(-). Clamped to safe
+        limits; the result is the angle actually commanded. relative=true moves by `degrees`."""
+        _ensure_awake()
+        if joint.endswith("Hand"):
+            current = rt.motion.get_angles([joint])[joint] if relative else 0.0
+            value = max(0.0, min(1.0, current + degrees / 100.0))
+            result = rt.motion.set_angles({joint: value}, speed)
+            return {"joint": joint, "open_percent": round(result[joint] * 100)}
+        target = rad(degrees)
+        if relative:
+            target += rt.motion.get_angles([joint])[joint]
+        result = rt.motion.set_angles({joint: target}, speed)
+        out: dict[str, Any] = {"joint": joint, "degrees": deg(result[joint])}
+        if abs(result[joint] - target) > 1e-3:
+            out["clamped"] = True
+        return out
 
     @tool(mcp, READ_ONLY)
     def list_joints() -> dict[str, Any]:
@@ -139,6 +181,7 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                  pose: Literal["down", "up", "forward", "out", "hug", "wave_ready", "high_five"],
                  speed: Annotated[float, Field(gt=0, le=1)] = 0.4) -> dict[str, float]:
         """Put an arm (or both) into a named pose."""
+        _ensure_awake()
         if pose not in ARM_POSES_DEG:
             raise ValueError(f"pose must be one of {sorted(ARM_POSES_DEG)}")
         result = rt.motion.set_angles(arm_pose_angles(side, pose), speed)
@@ -178,8 +221,8 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                       knee_pitch_deg: Annotated[float, Field(ge=-25, le=25, description="crouch negative")] = 0.0,
                       speed: Annotated[float, Field(gt=0, le=1)] = 0.2) -> dict[str, float]:
         """Lean / crouch with the hip and knee (expressive body posture)."""
+        _ensure_awake()
         result = rt.motion.set_angles({"HipPitch": rad(hip_pitch_deg), "HipRoll": rad(hip_roll_deg),
                                        "KneePitch": rad(knee_pitch_deg)}, speed)
         return {k: deg(v) for k, v in result.items()}
 
-    _ = math  # keep import for future use

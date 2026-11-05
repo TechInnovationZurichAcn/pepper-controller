@@ -17,9 +17,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from pepper_mcp.robot.awareness import ABILITIES, LIFE_STATES, PRESETS
+from pepper_mcp.robot.awareness import ABILITIES, PRESETS
 from pepper_mcp.robot.leds import MOODS
 from pepper_mcp.robot.perception import EXTRACTORS
+from pepper_mcp.robot.tracker import DEFAULT_FOLLOW_M, MIN_FOLLOW_M
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +67,8 @@ def state(rt: Any) -> dict[str, Any]:
         "navigation": rt.navigator is not None,
     }
     out["voice_agent"] = rt.voice_agent
-    out["mic"] = ({"running": rt.mic.running, "mic": rt.mic.mic} if rt.mic is not None else None)
+    out["mic"] = ({"running": rt.mic.running, "mic": rt.mic.mic, "muted": rt.mic_muted}
+                  if rt.mic is not None else None)
     out["reflexes"] = _safe("reflexes", rt.reflexes.list) if rt.reflexes else []
     out["perception"] = None
     if rt.perception is not None:
@@ -80,7 +82,7 @@ def state(rt: Any) -> dict[str, Any]:
     out["gestures"] = [{"name": g["name"], "description": g.get("description", "")}
                        for g in (_safe("gestures", rt.gestures.list) or [])]
     out["transcript"] = list(rt.transcript)[-8:]
-    out["options"] = {"liveliness": sorted(PRESETS), "life_states": list(LIFE_STATES),
+    out["options"] = {"liveliness": sorted(PRESETS),
                       "abilities": list(ABILITIES), "moods": sorted(MOODS), "extractors": sorted(EXTRACTORS),
                       "track_targets": list(TRACK_TARGETS), "track_modes": list(TRACK_MODES)}
     return out
@@ -119,6 +121,8 @@ def _base_free(rt: Any) -> None:
         raise ActionError("follow person is active and owns the base; turn it off first")
     if rt.navigator and rt.navigator.busy:
         raise ActionError("navigation owns the base; stop it first")
+    if rt.motion.hatch_open():
+        raise ActionError("the charging hatch is open: close it, NAOqi locks the wheels until then")
 
 
 # ------------------------------------------------------------------ actions
@@ -160,7 +164,7 @@ def _follow(rt: Any, a: dict[str, Any]) -> Any:
     tracker = _need(rt.tracker, "tracker")
     if not _bool(a, "enabled"):
         return tracker.stop()
-    return tracker.follow(_num(a, "distance_m", 0.3, 2.0, 0.6))
+    return tracker.follow(_num(a, "distance_m", MIN_FOLLOW_M, 2.0, DEFAULT_FOLLOW_M))
 
 
 def _gesture(rt: Any, a: dict[str, Any]) -> Any:
@@ -199,6 +203,12 @@ def _say(rt: Any, a: dict[str, Any]) -> Any:
     return rt.speech.say(text.strip()[:500], animated=_bool(a, "animated") if "animated" in a else True).to_dict()
 
 
+def _mic(rt: Any, a: dict[str, Any]) -> Any:
+    _need(rt.mic, "microphone")
+    rt.mic_muted = not _bool(a, "enabled")
+    return {"muted": rt.mic_muted}
+
+
 def _camera(rt: Any, a: dict[str, Any]) -> Any:
     cams = _need(rt.cameras, "camera")
     return cams.set_stream(_choice(a, "camera", ("top", "bottom", "depth")), _bool(a, "enabled"), None, None)
@@ -213,7 +223,6 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "liveliness": lambda rt, a: rt.awareness.apply_preset(_choice(a, "preset", PRESETS)),
     "ability": lambda rt, a: {"applied": rt.awareness.set_ability(_choice(a, "name", ABILITIES),
                                                                   _bool(a, "enabled"))},
-    "autonomous_life": lambda rt, a: {"state": rt.awareness.set_life_state(_choice(a, "state", LIFE_STATES))},
     "tracking": _tracking,
     "follow": _follow,
     "gesture": _gesture,
@@ -226,6 +235,7 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "volume": lambda rt, a: {"volume": _need(rt.audio_out, "audio").set_volume(int(_num(a, "level", 0, 100)))},
     "mood": lambda rt, a: _need(rt.leds, "LEDs").set_mood(_choice(a, "mood", MOODS)),
     "camera": _camera,
+    "mic": _mic,
 }
 
 

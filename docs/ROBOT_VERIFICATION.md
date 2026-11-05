@@ -36,9 +36,10 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 | camera | QVGA RGB frame from top camera in < 100 ms, depth frame from camera 2 | lower fps / resolution |
 | waving | `ALWavingDetection` subscribe + `PeoplePerception/Person/<id>/IsWaving` key | `hand_raise_vision` (MediaPipe) or LLM-vision only |
 | animations | `ALBehaviorManager.getInstalledBehaviors()` contains `animations/Stand/...` | curated list in `animation.py` |
-| tablet | `showWebview` with a data URL | `tablet_show_url` to the preview server |
+| tablet | `showWebview` with a data URL | – (laptop pages reach the tablet through the relay on the head, section 3) |
 | leds | `fadeRGB` on `FaceLeds` | – |
 | people | people perception extractors start; count of visible people | perception tools return empty lists |
+| charging hatch | `Device/SubDeviceList/Platform/ILS/Sensor/Value` is 0 (closed) | close the flap on the lower back: NAOqi locks the wheels while it is open |
 | move | wake up, `move(0.15, 0, 0)` for 300 ms, then stop | charging hatch closed? `wakeUp`, security distances |
 
 ## 2. Manual interaction test
@@ -72,7 +73,18 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
   → gestures aimed at people (`wave`, `high_five`, emotes) switch it off and back on in `finally`.
 * `ALAudioPlayer.playFileInLoop` blocks → always run in its own thread; `stopAll` ends it.
 * `ALTracker.registerTarget` resets the mode → Move mode re-applied after registering.
-* `showWebview` can block for seconds → called from a worker thread.
+* `showWebview` can block for seconds → called from a worker thread, one call at a time, in order.
+* The tablet's screen goes to sleep after a while (autonomous life disabled), and a sleeping
+  tablet answers `showWebview(url)` with `False` and shows nothing (the tic-tac-toe board never
+  appeared) → when a show call returns `False`, the worker calls `wakeUp` and retries (up to 3
+  times, then logs `tablet showWebview refused`).
+* The tablet is not on the LAN: it sits on the head's internal USB network (head `198.18.0.1`,
+  tablet `198.18.0.2`), the head does not forward it (`ip_forward` = 0) and the tablet's own
+  Wi-Fi is usually `DISCONNECTED` (`ALTabletService.getWifiStatus`). A page on the laptop's
+  preview server therefore loads as a blank white page → with `--preview-port`, the server
+  starts a small TCP relay on the head over SSH (`robot/tablet_relay.py`,
+  `198.18.0.1:<port>` → laptop) and points the tablet there (`tablet_url` in `robot_status`).
+  Without a relay and without tablet Wi-Fi, tic-tac-toe falls back to a static voice-only board.
 * 16 kHz audio is single-channel only (channel 1 left, 2 right, 3 front, 4 rear); 4-channel
   needs 48 kHz and is interleaved left, right, front, rear.
 * A head mic can fail on its own: on our robot (2026-11) the front mic went flat at the ADC
@@ -81,3 +93,14 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
 * NAOqi's default security distances (0.4 m / 0.1 m) abort most indoor base moves with
   `ALMotion/MoveFailed` → the server lowers them to 0.15 / 0.05 at start and reports aborted
   moves as `motion.blocked`.
+* An open charging hatch (`Platform/ILS` = 1) locks the wheels and every base move fails with
+  `ALMotion/MoveFailed` cause "Safety", the same cause as an obstacle; the lasers showed nothing
+  closer than 0.43 m. On 2026-11-05 this made "turn 180" and follow-me do nothing until the flap
+  was closed → base tools check the hatch first and say so.
+* Follow distance: 0.5 m is the closest that keeps driving (base front ~0.2 m + 0.15 m front
+  safety distance, ALTracker measuring to the head ~0.1 m behind the toes); `follow_person`
+  clamps to it.
+* `follow_person` right after start reported `robot_tracking: false` and Pepper never drove:
+  BasicAwareness (liveliness `lively`) also drives ALTracker and took the target over → follow and
+  track pause it (`pauseAwareness`) and resume it on stop; the follow loop re-arms the tracker
+  whenever `isActive()` turns false.
