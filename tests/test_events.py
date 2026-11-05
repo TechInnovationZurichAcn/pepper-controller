@@ -77,3 +77,15 @@ def test_memory_watcher_subscribe_or_poll(native: bool) -> None:
     time.sleep(0.1)
     assert len(seen) == (2 if native else 1)
     watcher.stop()
+
+
+def test_event_catalogue_lists_every_published_event() -> None:
+    import re
+    from pathlib import Path
+
+    from pepper_mcp.tools.events import EVENT_CATALOGUE
+
+    src = Path(__file__).resolve().parents[1] / "src" / "pepper_mcp"
+    published = {m for f in src.rglob("*.py") for m in re.findall(r'publish\(\s*"([a-z_]+\.[a-z_]+)"', f.read_text())}
+    assert {"speech.started", "follow.lost", "person.left"} <= published  # the scan itself works
+    assert published - set(EVENT_CATALOGUE) == set()

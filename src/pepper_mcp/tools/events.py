@@ -10,11 +10,14 @@ from pydantic import Field
 from pepper_mcp.tools._common import ACTION, READ_ONLY, tool
 
 EVENT_CATALOGUE: dict[str, str] = {
+    "speech.started": "a person started talking, from Gemini's input transcript {at} (backdated ~0.8 s)",
+    "speech.final": "the person finished talking {text, started_at, ended_at}",
+    "speech.aborted": "the utterance had no words, e.g. only noise {reason, started_at}",
     "speech.keyword": "recognize_keywords heard a word {word, confidence}",
     "tts.started": "Pepper started saying {utterance_id, text}",
     "tts.finished": "Pepper finished saying {utterance_id, text, duration_s, error}",
     "person.appeared": "new person perceived {person_id, distance_m, bearing_deg, position_m, face_detected…}",
-    "person.left": "person no longer perceived {person_id, last_distance_m}",
+    "person.left": "person no longer perceived {person_id, last_distance_m, present_for_s}",
     "person.waving": "person waved / raised a hand {person_id, side}",
     "person.looking_at_robot": "gaze toward the robot changed {person_id, looking}",
     "person.engaged": "person entered the engagement zone / approached {person_id, zone, event}",
@@ -25,6 +28,8 @@ EVENT_CATALOGUE: dict[str, str] = {
     "reflex.completed": "a reflex finished {reflex, trigger, result} e.g. high_five result.touched",
     "task.finished": "a background action finished {task_id, kind, ok, error}",
     "tracking.changed": "follow/track state changed",
+    "follow.lost": "while following, nobody perceived for 3 s {unseen_s}",
+    "follow.found": "while following, someone is perceived again {people}",
     "nav.status": "navigation status changed {status, busy, current_map, localized}",
     "robot.fell": "the robot is falling / has fallen",
     "motion.blocked": "NAOqi stopped a base move {reason} – usually an obstacle inside the safety distance",

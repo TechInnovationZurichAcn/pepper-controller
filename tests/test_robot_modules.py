@@ -543,3 +543,26 @@ def test_refused_push_recovery_off_warns_and_is_not_restored(fake_robot) -> None
     finally:
         rt.stop()
     assert motion.count("setPushRecoveryEnabled") == 1  # nothing to restore
+
+
+def test_person_left_reports_how_long_the_person_was_there(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pepper_mcp.gemini_live import format_event
+    from pepper_mcp.robot import perception as perception_mod
+    from pepper_mcp.runtime import Runtime
+    from tests.conftest import make_settings
+
+    rt = Runtime(make_settings(reflexes_enabled=False), FakeConnection(FakeRobot()))
+    clock = [100.0]
+    monkeypatch.setattr(perception_mod.time, "monotonic", lambda: clock[0])
+    p = rt.perception
+    p._on_people_list("PeoplePerception/PeopleList", [5, 6])
+    clock[0] += 1.0
+    p._on_people_list("PeoplePerception/PeopleList", [6])  # 5 was there for 1 s: a passer-by
+    clock[0] += 9.0
+    p._on_people_list("PeoplePerception/PeopleList", [])  # 6 stayed 10 s
+    left = {e.data["person_id"]: e.data for e in rt.bus.recent(types=["person.left"])}
+    assert left[5]["present_for_s"] == 1.0
+    assert left[6]["present_for_s"] == 10.0
+    assert format_event("person.left", left[5]) is None
+    assert format_event("person.left", left[6]) is not None
+    rt.bus.shutdown()

@@ -61,6 +61,9 @@ class Perception:
         self._started = False
         self._waving_state: dict[int, bool] = {}
         self._gaze_state: dict[int, bool] = {}
+        #: monotonic time each person appeared; person.left reports present_for_s so passers-by
+        #: can be told apart from someone who stayed
+        self._appeared_at: dict[int, float] = {}
 
     # ------------------------------------------------------------- lifecycle
     def start(self, extractors: dict[str, bool] | None = None) -> dict[str, bool]:
@@ -137,13 +140,16 @@ class Perception:
         for pid in sorted(ids - known):
             info = self.person_info(pid)
             self._people[pid] = info
+            self._appeared_at[pid] = time.monotonic()
             self.bus.publish("person.appeared", info, source="perception")
         for pid in known - ids:
             info = self._people.pop(pid, {"person_id": pid})
             self._waving_state.pop(pid, None)
             self._gaze_state.pop(pid, None)
-            self.bus.publish("person.left", {"person_id": pid, "last_distance_m": info.get("distance_m")},
-                             source="perception")
+            appeared = self._appeared_at.pop(pid, None)
+            present_for_s = round(time.monotonic() - appeared, 1) if appeared is not None else None
+            self.bus.publish("person.left", {"person_id": pid, "last_distance_m": info.get("distance_m"),
+                                             "present_for_s": present_for_s}, source="perception")
         # refresh waving / gaze on present people (cheap memory reads)
         for pid in ids:
             waving = self._person_key(pid, "IsWaving")
