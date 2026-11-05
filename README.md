@@ -21,37 +21,139 @@ This branch contains only the MCP server. The keyboard teleop lives on `main`.
 
 ---
 
-## Quick start (robot already set up)
+## Quick start (laptop and robot already set up)
 
 ```bash
-cd ~/Personal/pepper && source .venv/bin/activate
-# 1. power Pepper on, wait for it to stand up, press the chest button once → it says its IP
+cd pepper-controller && source .venv/bin/activate     # the cloned repo (step 3)
+# power Pepper on, wait for it to stand up, press the chest button once → it says its IP
 ping -c 2 <PEPPER_IP> && nc -zv <PEPPER_IP> 9559
-pepper-mcp-verify --ip <PEPPER_IP> --no-move      # optional sanity check
-pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # step 11
+pepper-mcp-verify --ip <PEPPER_IP> --no-move          # optional sanity check
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # step 15
 ```
 
-`GEMINI_LIVE_KEY` must be in the git-ignored `.env` (step 11). Everything else is explained
-below, from switching the robot on to talking to it.
+New laptop? Do **Part 1** once. New robot or new network? Do **Part 2**.
 
 ---
 
-## Step-by-step setup
+## Part 1 – Install on the laptop (Arch or Ubuntu, no robot needed)
 
-Commands assume Arch Linux, `zsh`, the repo at `~/Personal/pepper`, and `<PEPPER_IP>`
-standing for the robot's address (step 3).
+Tested on Arch Linux and Ubuntu 22.04 / 24.04 (desktop). Other distributions work if you
+translate the package names. `<PEPPER_IP>` stands for the robot's address (step 9).
 
 ### 0. What you need
 
 | Item | Notes |
 |---|---|
+| **x86_64** Linux laptop | `qi` (libqi-python, the NAOqi client) only ships Linux wheels for x86_64; ARM boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot |
+| Internet on the laptop | the LLM (Gemini Live) runs in the cloud; first start also downloads the speech model (~500 MB) |
+| A Gemini API key | free from [Google AI Studio](https://aistudio.google.com/apikey); only needed for `pepper-mcp-gemini` (step 4) |
 | Pepper with NAOqi 2.5.x | charged (plug the charger into the back of the base; unplug it before driving) |
-| A network Pepper and the laptop share | a router you control with **client/AP isolation off**, or an Ethernet cable straight from the laptop to Pepper (step 2, option C) |
-| Laptop with internet | the LLM (Gemini Live) runs in the cloud; only the robot traffic is local |
-| Python 3.10 – 3.12 and [`uv`](https://docs.astral.sh/uv/) | `qi` (libqi-python) has no wheels for 3.13+; Arch's system Python is newer, so `uv` fetches 3.12 |
+| A network Pepper and the laptop share | a router you control with **client/AP isolation off**, or an Ethernet cable straight from the laptop to Pepper (step 8, option C) |
 | ~2 m × 2 m of clear floor | Pepper moves its base during the checks and when the LLM decides to walk |
 
-Robot parts you will touch:
+Python itself is **not** a requirement: `qi` needs CPython 3.10 – 3.12, which is older than
+Arch's and Ubuntu 25.04+'s system Python, so [`uv`](https://docs.astral.sh/uv/) downloads a
+private 3.12 for the project. The system Python is never touched.
+
+### 1. System packages
+
+**Arch Linux**
+
+```bash
+sudo pacman -Syu --needed git openssh uv openbsd-netcat nmap avahi nss-mdns
+```
+
+**Ubuntu / Debian**
+
+```bash
+sudo apt update
+sudo apt install -y git curl openssh-client netcat-openbsd nmap avahi-utils
+```
+
+What they are for: `git` to clone, `openssh` (`ssh`/`scp`) to copy sounds and tablet assets
+onto the robot, `nc` / `nmap` / `avahi` to find and test the robot on the network (steps 9–10).
+`uv` is installed in step 2 on Ubuntu.
+
+The network commands in Part 2 use NetworkManager (`nmcli`), the default on Ubuntu Desktop
+and on most Arch desktop installs. If you use something else (`iwd`, `systemd-networkd`,
+netplan on Ubuntu Server), do the equivalent there.
+
+### 2. Install `uv` (Ubuntu only; Arch got it in step 1)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh     # installs into ~/.local/bin
+source ~/.local/bin/env                             # or open a new terminal
+uv --version
+```
+
+### 3. Clone the repo and create the environment
+
+```bash
+git clone -b mcp-server https://github.com/Maelwalser/pepper-controller.git
+cd pepper-controller
+uv venv --python 3.12 .venv          # downloads CPython 3.12 if the system lacks it
+source .venv/bin/activate
+uv pip install -e ".[all,dev]"       # qi + faster-whisper + webrtcvad + google-genai + pytest/ruff
+```
+
+Extras: `robot` (`qi`, needed for real hardware), `speech` (local STT + VAD), `gemini`
+(Gemini Live agent), `all` (= those three), `vision` (MediaPipe hand-raise detector,
+optional), `dev` (tests, ruff).
+
+**Run every command from the repo root with the venv active** (`source .venv/bin/activate`
+in each new terminal, or call `.venv/bin/pepper-mcp` directly). The `.env` key file, the
+downloaded speech model (`.models/`) and saved maps (`pepper_maps.json`) are all looked up
+relative to the current directory.
+
+### 4. Add the Gemini API key
+
+```bash
+echo 'GEMINI_LIVE_KEY=<your key>' > .env && chmod 600 .env    # .env is git-ignored
+```
+
+`pepper-mcp-gemini` reads the key from `.env` in the current directory, or from an exported
+`GEMINI_LIVE_KEY`. Other settings are not read from `.env`: pass them as flags or export the
+`PEPPER_*` variables (see [Configuration](#configuration)).
+
+### 5. Check the install without the robot
+
+```bash
+pytest -q                                                            # whole suite, fake robot
+pepper-mcp --fake --stt none --preview-port 8765 --transport streamable-http
+```
+
+Open <http://localhost:8765/> (dashboard with event log and fake camera), `Ctrl-C` to stop.
+This proves the server and the MCP plumbing work before hardware enters the picture.
+
+Optional: download the speech model now, on a good connection (it is otherwise fetched on the
+first start with hearing on and lands in `.models/`):
+
+```bash
+python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', download_root='.models')"
+```
+
+### 6. GPU speech recognition (optional, NVIDIA only)
+
+Only matters for the server's own speech-to-text (`pepper-mcp`, or `pepper-mcp-gemini --stt …`);
+Gemini Live does not need it. faster-whisper's ctranslate2 needs the CUDA **12**
+cuBLAS/cuDNN libraries. Installing them as wheels into the venv works on any distro and does
+not clash with a newer system CUDA (Arch) or a missing one (Ubuntu); only the NVIDIA driver
+must be installed system-wide (`nvidia-smi` must work).
+
+```bash
+uv pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+SP="$PWD/.venv/lib/python3.12/site-packages"
+export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib"   # in every new shell
+```
+
+Then add `--stt-device cuda`. Without a GPU use `--stt-device cpu` (and `--stt-model base`
+if `small` is too slow).
+
+---
+
+## Part 2 – Bring up the robot
+
+### Robot parts you will touch
 
 * **Chest button** – just below the tablet. Short press: power on, or (when running) say
   the IP. Hold ~3 s: shut down.
@@ -62,7 +164,7 @@ Robot parts you will touch:
   **refuses to move**.
 * **Ethernet port** – under the cover on the back of the head.
 
-### 1. Power on
+### 7. Power on
 
 1. Close the charging hatch and unplug the charger.
 2. Press the chest button once (short). The eyes and shoulders light up and the tablet
@@ -73,7 +175,7 @@ Robot parts you will touch:
 If Pepper stays slumped forward after boot it is in rest mode – that is fine, the server
 wakes it on start.
 
-### 2. Put Pepper and the laptop on the same network
+### 8. Put Pepper and the laptop on the same network
 
 The robot has to open connections **to** the laptop (microphone audio, ALMemory signals),
 not only the other way round. Networks with client isolation (guest Wi-Fi, campus/eduroam,
@@ -90,129 +192,211 @@ many hotel and office networks) break hearing even when `ping` works.
    * or, if Pepper is already reachable on some network, open its web page
      `http://<PEPPER_IP>/` in a browser (user `nao` and the robot's password) →
      *Network settings*;
-   * or plug Pepper in by Ethernet (option C) and use the web page from there.
-5. Connect the laptop:
+   * or plug Pepper into the router by Ethernet first (option B, step B4).
+5. Connect the laptop (or use the desktop's Wi-Fi menu):
 
    ```bash
    nmcli dev wifi connect "<ROUTER_SSID>" password "<ROUTER_PASSWORD>"
    ```
 
-**Option B – router without internet, laptop keeps its normal Wi-Fi.** Plug the laptop into
-the router by Ethernet and stop the cable from taking the default route, otherwise the LLM
-is cut off:
+**Option B – dedicated router for Pepper, laptop wired to it, internet from the laptop's
+normal Wi-Fi.** Use this with a new or offline router (no internet uplink needed). Pepper
+ends up on the router's Wi-Fi and the laptop reaches it over the Ethernet cable, while the
+laptop's Wi-Fi keeps carrying internet traffic (Gemini, MCP clients).
 
-```bash
-nmcli con mod "Wired connection 1" ipv4.never-default yes ipv6.never-default yes
-nmcli con up "Wired connection 1"
-ip route get 1.1.1.1            # must say "dev wlp…", not the Ethernet device
+```
+ internet ── venue Wi-Fi ── wlan ┐
+                                 laptop
+ Pepper ~~ router Wi-Fi ~~ router ── Ethernet ┘   (Pepper: Ethernet only for first setup)
 ```
 
-No link light on a port means a bad cable: swap it before debugging anything else.
+*B1. Router (once).* Power it, connect to its admin page (address and login are on its
+label; usually `192.168.0.1` / `192.168.1.1`), then:
+
+* set a Wi-Fi SSID and a WPA2 password Pepper will use (2.4 GHz is the safe choice);
+* turn off "AP / client isolation" and do not use the guest network;
+* make sure its LAN subnet does **not** overlap the laptop's Wi-Fi or Docker networks
+  (`ip -br addr`; Docker uses `172.17–172.31.x`, so a `192.168.x.0/24` LAN is safe);
+* optional: once Pepper shows up in the DHCP client list, add a reservation so its IP stays
+  the same.
+
+*B2. Laptop profile (once).* A NetworkManager profile that takes an address from the router
+but **never** a default route or DNS, so internet stays on Wi-Fi. It has no interface name,
+so it works with any Ethernet port or USB adapter, and its high autoconnect priority beats the
+auto-created "Wired connection N" profiles. Those would otherwise take the default route as
+soon as the cable is plugged in, and since this router has no internet, the laptop goes
+offline:
+
+```bash
+nmcli con add type ethernet con-name pepper-router \
+  connection.autoconnect yes connection.autoconnect-priority 100 \
+  ipv4.method auto ipv4.never-default yes ipv4.ignore-auto-dns yes ipv6.method disabled
+```
+
+Side effect: on any other wired network the cable is used for its local subnet only and
+internet keeps going over Wi-Fi. To use a wired uplink for internet somewhere else, run
+`nmcli con up "Wired connection N"` there (or delete this profile).
+
+*B3. Plug in and bring it up.* Cable laptop ↔ a router **LAN** port (not WAN/Internet/Cable).
+Do **not** join the laptop's Wi-Fi to the router: a laptop has one Wi-Fi card, so that
+replaces the internet Wi-Fi and the internet drops. The router's Wi-Fi is for Pepper only.
+
+```bash
+ip -br link                                  # the Ethernet device that is now UP, e.g. enp0s20f0u3u4u5
+nmcli con up pepper-router ifname <ETH_DEV>   # usually already up on its own
+ip -br addr show <ETH_DEV>                   # an address from the router, e.g. 192.168.0.100/24
+ip route                                     # "default via … dev wl…" must be the only default
+ip route get 1.1.1.1                         # → dev wl…  (internet over Wi-Fi)
+ip route get 192.168.0.1                     # → dev <ETH_DEV>  (router subnet over the cable)
+```
+
+If a `default via … dev <ETH_DEV>` route shows up anyway, another wired profile won the race:
+`nmcli con down "Wired connection N"` and bring `pepper-router` up again. No link light on the
+port means a bad cable or port: swap it before debugging anything else.
+
+A default route with `metric 1024`, or `resolvectl status <ETH_DEV>` showing the router as DNS
+server with `Default Route: yes`, means **`systemd-networkd`** is also configuring the cable
+(`systemctl is-active systemd-networkd`, files in `/etc/systemd/network/`). Either stop it from
+managing Ethernet, or give the adapter its own file that keeps gateway and DNS off it. Match on
+the MAC (`ip -br link`), not the name: USB adapter names change with the port:
+
+```ini
+# /etc/systemd/network/10-pepper.network  (sorts before any catch-all "enp*" file)
+[Match]
+MACAddress=<ADAPTER_MAC>
+
+[Network]
+DHCP=ipv4
+DNSDefaultRoute=no
+IPv6AcceptRA=no
+
+[DHCPv4]
+UseGateway=no
+UseDNS=no
+UseDomains=no
+```
+
+then `sudo networkctl reload && sudo networkctl reconfigure <ETH_DEV>`.
+
+*B4. First time only: put Pepper on the router's Wi-Fi.* Pepper does not know the new SSID
+yet, so plug its head Ethernet port (step 6) into another LAN port of the router, find its
+wired IP (step 9: the router's client list, or `nmap -p 9559 --open <router subnet>`), then
+join the Wi-Fi with connman's own client over SSH. **WPS push-button** avoids typing the key
+at all (FRITZ!Box: the *Connect/WPS* button, ~1 s, until the WLAN LED blinks; you then have
+~2 minutes):
+
+```bash
+ssh nao@<PEPPER_IP> connmanctl services     # find the router's id: wifi_…_managed_psk
+ssh -t nao@<PEPPER_IP> connmanctl           # interactive shell on the robot, then:
+connmanctl> agent on
+connmanctl> connect wifi_…_managed_psk
+Passphrase?                                 # WPS: press the router button, then just Enter
+                                            # here and at the WPS PIN prompt (empty = push-button);
+                                            # or type the Wi-Fi key here
+connmanctl> services                        # "*AR <SSID>" = favourite + connected
+connmanctl> quit
+```
+
+`invalid-key` means the router rejected the key: use the *Wi-Fi network key* from the label
+(FRITZ!Box: "WLAN-Netzwerkschlüssel"), not the admin password, or use WPS. "In progress"
+means an earlier attempt is still pending: `disconnect <id>` first. The robot web page
+(`http://<PEPPER_IP>/` → *Network settings*) works too. `ALConnectionManager.connect` over
+NAOqi was unreliable on this robot (it stayed `idle`), so use `connmanctl`.
+
+Read the Wi-Fi address with `ssh nao@<PEPPER_IP> ip -4 -o addr show wlan0` (BusyBox `ip`, no `-br`), or press the chest
+button after unplugging.
+Pepper (connman) remembers the network and rejoins it on every boot. Unplug Pepper's cable
+and check
+`ping` / `nc -zv <PEPPER_IP> 9559` against the **Wi-Fi** address. The Ethernet IP is no
+longer valid once the cable is out.
+
+*Every session after that:* power the router, plug the laptop's cable (`pepper-router`
+comes up by itself; check with `ip route get 1.1.1.1`), power Pepper and press its chest
+button once: it says its current IP. The address comes from the router's DHCP and can change
+between sessions, so ask each time, then:
+
+```bash
+export PEPPER_IP=<the IP Pepper said>
+pepper-mcp-gemini                # or pepper-mcp; both read PEPPER_IP when --ip is omitted
+```
+
+The firewall rule from step 11 only needs adding once: with `ufw`,
+`sudo ufw allow from 192.168.178.0/24` covers the whole FRITZ!Box subnet whatever IP Pepper
+gets. Unplug the cable when done.
 
 **Option C – no router, Ethernet cable laptop ↔ Pepper.** Let the laptop hand out an
 address on the cable while Wi-Fi keeps the internet:
 
 ```bash
+ip -br link                     # find the Ethernet device, e.g. enp3s0 / eno1 / enx…
 nmcli con add type ethernet ifname <ETH_DEV> con-name pepper-direct ipv4.method shared ipv6.method ignore
 nmcli con up pepper-direct      # laptop becomes 10.42.0.1 and runs DHCP for Pepper
 ```
 
-(`ip -br link` lists the device names.) Pepper gets a `10.42.0.x` address; step 3 tells
-you which.
+`ipv4.method shared` needs `dnsmasq` (Arch: `sudo pacman -S dnsmasq`; Ubuntu Desktop has it).
+Pepper gets a `10.42.0.x` address; step 9 tells you which.
 
-### 3. Get Pepper's IP address
+### 9. Get Pepper's IP address
 
 Use the first method that works:
 
 1. **Ask Pepper.** With Pepper booted, press the chest button once (short). It says
    "… my internet address is 192.168.1.5" (or that it is not connected – go back to
-   step 2). Write the address down.
+   step 8). Write the address down.
 2. **Router.** Look for a client called `pepper` / the robot's name in the router's DHCP
    client list.
-3. **Zeroconf.** NAOqi advertises itself over mDNS:
+3. **Zeroconf.** NAOqi advertises itself over mDNS (needs the avahi daemon running:
+   `sudo systemctl enable --now avahi-daemon`, already on by default on Ubuntu):
 
    ```bash
-   avahi-browse -rt _naoqi._tcp     # pacman -S avahi nss-mdns if missing
+   avahi-browse -rt _naoqi._tcp
    ```
 
 4. **Scan the subnet** for the NAOqi port (adjust the subnet to yours, see `ip -br addr`;
    for option C it is `10.42.0.0/24`):
 
    ```bash
-   nmap -p 9559 --open 192.168.1.0/24     # pacman -S nmap if missing
+   nmap -p 9559 --open 192.168.1.0/24
    ```
 
 Optional, so you can type it once per shell: `export PEPPER_IP=192.168.1.5` – every
 command below also reads `PEPPER_IP` when `--ip` is omitted.
 
-### 4. Check the laptop can reach the robot
+### 10. Check the laptop can reach the robot
 
 ```bash
 ip -br addr                     # your laptop's address on the robot's subnet
 ping -c 3 <PEPPER_IP>
-nc -zv <PEPPER_IP> 9559         # NAOqi port; pacman -S openbsd-netcat if nc is missing
+nc -zv <PEPPER_IP> 9559         # NAOqi port
 ```
 
 * `ping` fails → not on the same network, or wrong IP (ask Pepper again).
 * `ping` works but port 9559 does not → client isolation is still on in the router.
 
-### 5. Open the laptop firewall for the robot
+### 11. Open the laptop firewall for the robot
 
-The robot calls back into the laptop on a random TCP port (audio stream, signals). `ufw`
-blocks that by default and hearing then **fails silently**. Allow everything from the
-robot's IP only:
-
-```bash
-sudo ufw allow from <PEPPER_IP>
-sudo ufw status numbered        # later: sudo ufw delete <n> to remove the rule
-```
-
-To open the live preview (step 10) from another device (phone, Pepper's tablet) also run
-`sudo ufw allow 8765/tcp`. Not using `ufw`? Allow inbound TCP from the robot in whatever
-firewall you have, or pin the callback port with `PEPPER_LISTEN_URL=tcp://0.0.0.0:9560`
-and open just that.
-
-### 6. Python environment
+The robot calls back into the laptop on a random TCP port (audio stream, signals). A
+firewall that blocks inbound connections makes hearing **fail silently**. Find out which
+firewall you have, then allow everything from the robot's IP only:
 
 ```bash
-cd ~/Personal/pepper
-uv venv --python 3.12 .venv
-source .venv/bin/activate
-uv pip install -e ".[robot,speech,dev]"   # qi + faster-whisper + webrtcvad + pytest/ruff
-pytest -q                                 # all tests run against the fake robot
+sudo ufw status                 # Ubuntu ships ufw; "inactive" = nothing to do
+sudo firewall-cmd --state       # firewalld; "not running" / command not found = nothing to do
 ```
 
-Extras: `robot` (`qi`, needed for real hardware), `speech` (local STT + VAD), `gemini`
-(Gemini Live agent, step 11), `vision` (MediaPipe hand-raise detector), `dev` (tests,
-ruff). Every command below assumes `source .venv/bin/activate` in that shell (or call
-`.venv/bin/pepper-mcp` directly).
+| Firewall | Allow the robot | Undo later |
+|---|---|---|
+| `ufw` (active) | `sudo ufw allow from <PEPPER_IP>` | `sudo ufw status numbered`, then `sudo ufw delete <n>` |
+| `firewalld` | `sudo firewall-cmd --zone=trusted --add-source=<PEPPER_IP>` | `sudo firewall-cmd --zone=trusted --remove-source=<PEPPER_IP>` (the rule is runtime-only and gone after a reboot anyway) |
+| none (default on a fresh Arch install) | nothing to do | – |
 
-The first start with hearing on downloads the faster-whisper model (`small`, ~500 MB)
-into the Hugging Face cache; do it once on a good connection.
+Using raw `nftables`/`iptables`? Allow inbound TCP from the robot's IP, or pin the callback
+port with `PEPPER_LISTEN_URL=tcp://0.0.0.0:9560` and open just that.
 
-**GPU speech recognition (NVIDIA, optional).** faster-whisper's ctranslate2 needs the
-CUDA **12** cuBLAS/cuDNN libraries; Arch ships a newer CUDA, so install the CUDA 12 wheels
-into the venv and point the loader at them:
+To open the dashboard (step 14) from another device (phone, Pepper's tablet) also open TCP
+8765 (`sudo ufw allow 8765/tcp` or `sudo firewall-cmd --add-port=8765/tcp`).
 
-```bash
-uv pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
-SP="$PWD/.venv/lib/python3.12/site-packages"
-export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib"
-```
-
-Then add `--stt-device cuda`. Without a GPU use `--stt-device cpu` (and `--stt-model base`
-if `small` is too slow).
-
-### 7. Dry run without the robot (optional, 1 minute)
-
-```bash
-pepper-mcp --fake --stt none --preview-port 8765 --transport streamable-http
-```
-
-Open <http://localhost:8765/> (event log + fake camera), `Ctrl-C` to stop. This proves the
-server and the MCP plumbing work before hardware enters the picture.
-
-### 8. Hardware checklist
+### 12. Hardware checklist
 
 Clear ~1 m in front of Pepper (the last check drives the base forward for 0.3 s), then:
 
@@ -221,11 +405,16 @@ pepper-mcp-verify --ip <PEPPER_IP>        # --no-move skips the drive, --quiet s
 ```
 
 You want `[OK ]` on at least `connect`, `tts`, `audio_callback` (≈ 6 callbacks/s), `camera`
-and `move`. A `FAIL` on `audio_callback` almost always means the firewall (step 5) or client
-isolation (step 2). What every check proves and its fallback:
+and `move`. A `FAIL` on `audio_callback` almost always means the firewall (step 11) or client
+isolation (step 8). What every check proves and its fallback:
 [`docs/ROBOT_VERIFICATION.md`](docs/ROBOT_VERIFICATION.md).
 
-### 9. Run the server once by hand
+Playing sound files and showing pages on the tablet copies files onto the robot over SSH
+as user `nao`, password `pepper` (the factory default). If your robot's password was
+changed, export `PEPPER_SSH_PASSWORD=<password>` (and `PEPPER_SSH_USER` if needed) before
+starting the server.
+
+### 13. Run the server once by hand
 
 ```bash
 pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
@@ -234,7 +423,7 @@ pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
 On start the server wakes Pepper, turns autonomous life off, applies the liveliness preset
 and lowers the base safety distances to 0.15 m / 0.05 m.
 
-### 10. Watch and test it
+### 14. Watch and test it
 
 1. Open <http://localhost:8765/>: the control dashboard. Header: connection, battery,
    posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
@@ -246,29 +435,31 @@ and lowers the base safety distances to 0.15 m / 0.05 m.
    `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
 2. Stand ~1 m in front and say a sentence. A `speech.final` event with your words should
    appear about a second after you stop talking (the first one is slower while whisper
-   loads).
+   loads, and the very first start downloads the model).
 3. Raise a hand facing the robot: `person.waving`, then the high-five reflex. Touch the
    back of its raised hand to finish it.
 4. Touch its head: a `touch.*` event and a nod.
 
 Pepper does **not** answer yet – the server only produces events. The LLM comes next.
 `Ctrl-C` stops it; on shutdown the server stops the base and restores motion defaults and
-autonomous life. Only one process may own the robot, so stop this one before step 11.
+autonomous life. Only one process may own the robot, so stop this one before step 15.
 
-### 11. Talk to Pepper through Gemini Live
+### 15. Talk to Pepper through Gemini Live
 
 A speech-to-speech model hears
-Pepper's front microphone, watches its head camera (1 fps), answers through Pepper's
+Pepper's own head microphone (front, or the next working one), watches its head camera (1 fps), answers through Pepper's
 loudspeakers and drives the body through the same MCP tools (91 of them; speech, hearing and
-blocking tools such as `say` or `wait_for_event` are left out because Gemini is the voice and
-every function call pauses the model). Robot events (touch, people appearing, `motion.blocked`,
-failed tasks, high-five results) are passed to it as short notes, so it reacts to them like
-to speech. Nothing on the laptop is used except the network.
+blocking tools such as `say` or `wait_for_event` are left out because Gemini is the voice).
+Actions run in the background while it keeps talking and report back silently, and turns that
+would only say "no speech" or a gesture name are kept off the speakers. Robot events (touch, people appearing, `motion.blocked`,
+failed tasks, high-five results) are passed to it as short notes; it reacts with its body and
+speaks only when a person would, without narrating what it sensed or which tool it used. Other
+reflexes (attention, greet, touch) already moved the body and are not reported. Nothing on the laptop is used except the network.
+With `--preview-port`, the dashboard's Hearing card says the mic goes straight to Gemini Live:
+its Listening and Barge-in switches belong to the server's own speech-to-text, which is off here.
 
 ```bash
-uv pip install -e ".[robot,gemini]"
-echo 'GEMINI_LIVE_KEY=<your key>' > .env && chmod 600 .env    # .env is git-ignored
-pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # key from step 4
 ```
 
 It owns the robot (stop any other `pepper-mcp` first) and prints `[heard]`, `[said]` and `[tool]` lines. Extra flags on top of every
@@ -279,7 +470,7 @@ cancellation, so it is muted while Pepper makes any sound (Gemini's voice, NAOqi
 reflexes, gestures with sounds): talk after Pepper finishes; interrupting mid-sentence is not
 possible. The free API tier has no Google Search quota, so search is not enabled.
 
-### 12. Other MCP clients over HTTP
+### 16. Other MCP clients over HTTP
 
 The standalone server still exposes every tool, resource and prompt to any MCP client:
 
@@ -287,14 +478,15 @@ The standalone server still exposes every tool, resource and prompt to any MCP c
 pepper-mcp --ip <PEPPER_IP> --transport streamable-http --host 0.0.0.0 --http-port 8808
 ```
 
-### 13. Shut down
+### 17. Shut down
 
-1. `Ctrl-C` the server or `pepper-mcp-gemini`. The server stops the base, restores the
-   NAOqi safety distances and autonomous life, and releases camera and microphone.
+1. `Ctrl-C` the server or `pepper-mcp-gemini` (`kill`/SIGTERM does the same). The server stops
+   the base, restores the NAOqi safety distances and autonomous life, and releases camera and
+   microphone. Only `kill -9` skips this.
 2. Hold the chest button ~3 s until Pepper says goodbye and goes to rest; wait for the
    lights to go off before closing the charging hatch and plugging in the charger.
-3. Optional: `sudo ufw delete <n>` for the rule from step 5, and
-   `nmcli con down pepper-direct` if you used option C.
+3. Optional: remove the firewall rule from step 11, and `nmcli con down pepper-direct` if
+   you used option C.
 
 If the server was killed instead of stopped, the robot keeps the lowered safety distances
 until the next server start or a reboot.
@@ -327,10 +519,15 @@ Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
 | `--no-audio` / `--no-camera` / `--no-perception` | `PEPPER_AUDIO` / `PEPPER_CAMERA` / `PEPPER_PERCEPTION` | on | switch subsystems off |
 | `--hand-raise-vision` | `PEPPER_HAND_RAISE_VISION` | off | laptop MediaPipe detector (`vision` extra) |
 | `--camera-fps` / `--camera-res` | `PEPPER_CAMERA_FPS` / `PEPPER_CAMERA_RES` | 10 / `qvga` | camera stream |
-| `--audio-rate` | `PEPPER_AUDIO_RATE` | 16000 | 16000 = front mic, 48000 = 4 channels |
+| `--audio-rate` | `PEPPER_AUDIO_RATE` | 16000 | 16000 = one mic, 48000 = 4 channels; `pepper-mcp-gemini` always uses 16000 (Gemini Live's input rate) |
+| `--mic` | `PEPPER_MIC` | `auto` | head mic to listen with: `auto` (front, or the first that isn't dead; measured for 0.6 s at start, so loud talking right next to one side can mislead it), `front`, `left`, `right`, `rear` |
 | – | `PEPPER_LISTEN_URL` | `tcp://0.0.0.0:0` | callback endpoint for the robot |
 | – | `PEPPER_VAD_END_SILENCE_MS` / `PEPPER_ECHO_TAIL_MS` | 450 / 350 | end-of-utterance silence, echo gate tail |
+| – | `PEPPER_SSH_USER` / `PEPPER_SSH_PASSWORD` | `nao` / `pepper` | robot login for copying sounds and tablet assets (`scp`); never logged |
+| – | `PEPPER_MAP_STORE` | `pepper_maps.json` | where saved maps and spots are kept (relative to the working directory) |
 | `--log-level` | `PEPPER_LOG_LEVEL` | `INFO` | logs go to stderr |
+
+`GEMINI_LIVE_KEY` (for `pepper-mcp-gemini`) is the only value read from `.env`.
 
 ## How the interaction loop works
 
@@ -354,6 +551,7 @@ src/pepper_mcp/
   reflexes/     attention, high_five, greet, touch_reaction, low_battery
   tools/        MCP tools, one module per domain (auto-registered)
   vision/       optional MediaPipe hand-raise detector
+  games/        tic-tac-toe on the tablet
   assets/       files served to the tablet (GIF, audio)
   preview.py    MJPEG / live audio / SSE side channel; verify.py
   gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
@@ -369,7 +567,7 @@ Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new g
 ## Development
 
 ```bash
-uv pip install -e ".[dev]"
+uv pip install -e ".[all,dev]"
 pytest -q              # fake robot, no hardware
 ruff check src tests
 ```
@@ -378,16 +576,24 @@ ruff check src tests
 
 | Symptom | Fix |
 |---|---|
+| `uv: command not found` | Ubuntu: step 2, then open a new terminal; Arch: `sudo pacman -S uv` |
+| `qi` wheel not found / `No solution found … qi` | venv on Python 3.13+: `rm -rf .venv && uv venv --python 3.12 .venv`; or the machine is not x86_64 (no `qi` wheels for ARM Linux) |
+| `pepper-mcp: command not found` | venv not active in this terminal: `source .venv/bin/activate` from the repo root |
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
-| Pepper says it is not connected | it is not on any network: step 2 |
-| connects, but no `speech.final` | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; ufw rule from step 5; router isolation |
+| Pepper says it is not connected | it is not on any network: step 8 |
+| connects, but no `speech.final` | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 11; router isolation |
 | Pepper does not drive / `motion.blocked` | charging hatch open, charger plugged in, or something inside the safety distance; lower it with `--safety-front` or the `set_safety` tool when the space is clear |
 | motors limp, nothing moves | emergency stop at the back of the neck is pressed: release it, then `wake_up` |
 | head snaps back after moves | `set_liveliness off`, or start with `--liveliness off` |
 | speech recognition slow | `--stt-model base`, GPU (step 6) or `--stt openai`; the first utterance after start is always slower |
 | Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` (e.g. 600) |
-| `stt_error: libcublas.so.12 … not found` | GPU libs missing: step 6, or `--stt-device cpu` |
+| `stt_error: libcublas.so.12 … not found` | GPU libs missing or `LD_LIBRARY_PATH` not set in this shell: step 6, or `--stt-device cpu` |
+| `ssh/scp failed` in the log, no sound files or tablet page | `openssh` client missing (step 1), or the robot password is not `pepper`: set `PEPPER_SSH_PASSWORD` |
+| `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 8) |
+| Internet drops when the router cable is plugged in | the wired profile took the default route: use `pepper-router` (option B, step B2), check `ip route get 1.1.1.1` says `dev wl…` |
+| Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step B4 |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
-| Pepper never answers | expected with plain `pepper-mcp`: run `pepper-mcp-gemini` (step 11) |
-| `pepper-mcp-gemini`: Pepper does not react to speech | stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `GEMINI_LIVE_KEY` set in `.env`? `1011 … exceeded quota` at connect = the key's free-tier limit |
-| `qi` wheel not found | Python 3.13+: recreate the venv with `--python 3.12` |
+| dashboard: `the server's own speech-to-text is off` when switching listening on | expected under `pepper-mcp-gemini`: Gemini does the listening, the toggle is for the server's STT |
+| Pepper never answers | expected with plain `pepper-mcp`: run `pepper-mcp-gemini` (step 15) |
+| `GEMINI_LIVE_KEY is not set` | `.env` missing or you are not in the repo root: step 4 |
+| `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |

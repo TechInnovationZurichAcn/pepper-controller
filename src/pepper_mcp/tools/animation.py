@@ -28,7 +28,7 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         return {"count": len(items), "animations": items[:limit], "tags": TAGS}
 
     @tool(mcp, ACTION)
-    def play_gesture(name: Annotated[str, Field(description="see list_gestures: high_five, wave, celebrate, nod, shake_head, hug_open, point_forward, thinking_pose, bow, arms_down, sixty_seven, clown_dance or a user-defined one")],
+    def play_gesture(name: Annotated[str, Field(description="see list_gestures: high_five, wave, celebrate, nod, shake_head, hug_open, point_forward, bow, arms_down, sixty_seven, clown_dance or a user-defined one")],
                      wait: bool = False,
                      params: Annotated[dict[str, Any] | None, Field(description="gesture parameters, e.g. {\"duration_s\": 10} for dances, {\"phrase\": \"Up top!\"} for high_five")] = None) -> dict[str, Any]:
         """Play a custom gesture from this server's registry (keyframe or procedural). Only one

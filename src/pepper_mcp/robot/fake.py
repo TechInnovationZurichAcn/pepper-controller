@@ -186,6 +186,30 @@ class FakeAudioDevice(FakeService):
         self.volume = 55
         self.prefs: tuple[Any, ...] | None = None
         self.output = bytearray()
+        # ALAudioDevice energy meters; set one low to simulate a dead mic
+        self.mic_energy = {"front": 400.0, "left": 300.0, "right": 450.0, "rear": 380.0}
+        self.energy_on = False
+
+    def enableEnergyComputation(self) -> None:
+        self.energy_on = True
+
+    def disableEnergyComputation(self) -> None:
+        self.energy_on = False
+
+    def _energy(self, mic: str) -> float:
+        return self.mic_energy[mic] if self.energy_on else 0.0
+
+    def getFrontMicEnergy(self) -> float:
+        return self._energy("front")
+
+    def getLeftMicEnergy(self) -> float:
+        return self._energy("left")
+
+    def getRightMicEnergy(self) -> float:
+        return self._energy("right")
+
+    def getRearMicEnergy(self) -> float:
+        return self._energy("rear")
 
     def setOutputVolume(self, level: int) -> None:
         self.volume = level

@@ -15,7 +15,7 @@ same change.
 
 ```bash
 source .venv/bin/activate                      # Python 3.12 venv; qi has no wheels for 3.13+
-uv pip install -e ".[robot,speech,dev]"        # recreate deps (extras: gemini, vision)
+uv pip install -e ".[all,dev]"                 # recreate deps (all = robot,speech,gemini; also: vision)
 pytest -q                                      # whole suite runs against robot/fake.py, no hardware
 ruff check src tests                           # lint (config in pyproject.toml)
 pepper-mcp --fake --stt none --preview-port 8765 --transport streamable-http   # server without robot
@@ -23,7 +23,8 @@ pepper-mcp-verify --ip <PEPPER_IP> [--no-move --quiet]                          
 ```
 
 Robot IP: press the chest button once and Pepper says it (DHCP, it changes). The robot
-must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>`.
+must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (firewalld:
+`firewall-cmd --zone=trusted --add-source=<PEPPER_IP>`). Fresh Arch/Ubuntu install: README Part 1.
 
 ## Layout
 

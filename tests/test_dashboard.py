@@ -83,6 +83,20 @@ def test_bad_actions_are_rejected(runtime, name: str, args: dict[str, Any], msg:
         dashboard.run_action(runtime, name, args)
 
 
+def test_listening_toggle_explains_gemini_mode(runtime) -> None:  # type: ignore[no-untyped-def]
+    # pepper-mcp-gemini runs with --stt none: Gemini hears the mic, the server has no listener.
+    assert runtime.listener is None and runtime.mic is not None
+    with pytest.raises(dashboard.ActionError, match="Gemini listens to Pepper's microphone"):
+        dashboard.run_action(runtime, "listening", {"enabled": True})
+
+
+def test_state_names_the_voice_agent_that_owns_the_mic(runtime) -> None:  # type: ignore[no-untyped-def]
+    # The Hearing card explains why Listening/Barge-in are off only when an agent owns the mic.
+    assert dashboard.state(runtime)["voice_agent"] is None
+    runtime.voice_agent = "Gemini Live (gemini-3.8-live)"
+    assert dashboard.state(runtime)["voice_agent"] == "Gemini Live (gemini-3.8-live)"
+
+
 def test_move_is_clamped_to_watchdog(runtime, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     seen: dict[str, float] = {}
 

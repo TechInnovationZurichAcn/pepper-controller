@@ -48,7 +48,7 @@ New capabilities added for real-time interaction (not on `main`):
 
 | Capability | Service | Exposed as |
 |---|---|---|
-| Live microphone stream into the laptop (16 kHz front mic) | `ALAudioDevice` remote module (`processRemote`) | `listen`, `speech.*` events, `mic_level`, `record_clip`, `/audio.wav` preview |
+| Live microphone stream into the laptop (16 kHz, front mic or the first working one, `--mic`) | `ALAudioDevice` remote module (`processRemote`) | `listen`, `speech.*` events, `mic_level`, `record_clip`, `/audio.wav` preview |
 | Speech-to-text (local faster-whisper or OpenAI-compatible HTTP) with VAD and echo gating | laptop | `listen`, `set_listening`, `get_transcript` |
 | Animated speech (gestures synchronised with words) | `ALAnimatedSpeech` | `say(animated=True)` |
 | Wave / raised-hand detection (3D sensor) | `ALWavingDetection` | `person.waving` event, `high_five` reflex |
@@ -143,7 +143,7 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 | `stop_animation` | – | ok |
 
 Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
-`hug_open`, `point_forward`, `thinking_pose`, `bow`, `sixty_seven`, `clown_dance`.
+`hug_open`, `point_forward`, `bow`, `sixty_seven`, `clown_dance`.
 
 ### 2.6 Perception
 
@@ -196,6 +196,20 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | `tablet_open_settings` | – | ok |
 | `tablet_status` | – | availability, what is shown, Wi-Fi status |
 
+Tablet calls reach the robot one at a time, in the order they were made, so the last thing asked
+for is what stays on screen. While a tic-tac-toe board is shown, the tablet is held by the game:
+`tablet_show_*`, `tablet_hide` and `tablet_play_video` fail with "the tictactoe board is on the
+tablet …" until `tictactoe_stop`.
+
+#### Games
+
+| Tool | Arguments | Returns |
+|---|---|---|
+| `tictactoe_start` | `human_symbol: X\|O`, `human_first`, `difficulty: easy\|medium\|hard` | state + `display` (`interactive` with `--preview-port`, `static`, `unavailable`) + `hint` |
+| `tictactoe_move` | `cell: 1-9` (the person's spoken move) | state after Pepper's reply |
+| `tictactoe_state` | – | board rows, turn, result, score |
+| `tictactoe_stop` | `hide_tablet` (default true) | final state; releases the tablet |
+
 ### 2.11 Tracking & following
 
 | Tool | Arguments | Returns |
@@ -235,7 +249,7 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 
 Built-in reflexes: `attention` (eye colour + look toward the person talking; plain noises are ignored),
 `high_five` (raised hand → arm up, wait for touch, celebrate), `greet` (new person
-→ look + wave), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
+→ raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
 
 ---
 

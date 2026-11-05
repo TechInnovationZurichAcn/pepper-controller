@@ -81,7 +81,7 @@ src/pepper_mcp/
 `pepper-mcp-gemini` runs the server in-process and calls the robot only through an in-memory
 MCP client, driven by one streaming Gemini Live session instead of a text turn loop:
 
-- **In:** `MicrophoneStream` consumer (16 kHz front mic, the exact Live input format) and
+- **In:** `MicrophoneStream` consumer (16 kHz head mic, the exact Live input format) and
   `CameraStreams.snapshot("top")` once per second (the API's maximum). `camera_snapshot` calls
   push a frame into the video input instead of returning an image.
 - **Out:** the 24 kHz voice goes to `AudioOut.speaker_stream` → `SpeakerStream`, which upsamples
@@ -89,10 +89,25 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   immediately, so the stream paces itself 150 ms ahead of playback; a barge-in or reconnect
   therefore leaves at most ~0.25 s queued on the robot.
 - **Tools:** every MCP tool except speech/hearing ones (Gemini is the voice and ears) and the
-  ones that wait (`wait_for_event`, `wait_task`): Live function calls block the model.
-  Schemas go through unchanged (`parameters_json_schema`), so the server's limits apply.
-- **Events:** a bus subscriber turns touch, people, `motion.blocked`, failed tasks and reflex
-  results into `[robot event]` text notes; they are held back while Pepper is talking.
+  ones that wait (`wait_for_event`, `wait_task`). Schemas go through unchanged
+  (`parameters_json_schema`), so the server's limits apply. Actions (tools without
+  `read_only_hint`, except `analyze_face`) are declared `NON_BLOCKING`: the model keeps talking
+  while they run, and their result goes back with `scheduling: SILENT` (`WHEN_IDLE` on failure).
+  A blocking call ends the model's turn and the turn after its result is where Gemini filled
+  the air with "wave" or "no speech". Queries stay blocking because the answer depends on them.
+  Tool calls run as tasks off the receive loop so the voice keeps flowing. Models without async
+  function calling (`gemini-3.1-flash-live*`) get plain blocking declarations.
+- **Speech filter:** native audio speaks whatever the model generates, including placeholders.
+  `SpeechFilter` holds the first audio of each turn until the output transcript (always on)
+  shows real words, usually the first fragment. A turn that is only a marker (`<no speech>`),
+  a placeholder ("no speech") or a tool/gesture name ("wave") never reaches the speakers;
+  held audio is released after 0.8 s at the latest.
+- **Events:** a bus subscriber turns touch, people, `motion.blocked`, failed tasks (successful
+  ones are dropped: the silent tool result already covered them) and high-five
+  results into `[robot event]` text notes; they are held back while Pepper is talking. Other
+  `reflex.completed` events are dropped: the body already reacted, and every note makes Gemini
+  take a turn, which it would spend narrating the reflex. The persona forbids narrating tools,
+  gestures or sensed events.
 - **Echo:** no AEC on the robot, so `EchoGate` drops mic audio while Gemini's voice plays, NAOqi
   speaks (`tts.*`), a reflex runs or a sound-making task (gesture, animation, audio) is active,
   plus a 0.4 s reverb tail. Every source expires on its own (≤ 30 s) so a missed event cannot
@@ -123,7 +138,9 @@ the server.
    rest of the code only sees `Event`s.
 4. **Audio is pushed by the robot.** `ALAudioDevice.setClientPreferences(name, 16000, 3, 0)`
    + `subscribe(name)` makes NAOqi call our `processRemote(channels, samples, timestamp,
-   buffer)` every ~170 ms with 16-bit PCM from the front microphone. The buffer arrives
+   buffer)` every ~170 ms with 16-bit PCM from the front microphone. With `--mic auto` (default)
+   the stream first reads NAOqi's per-mic energy meters and moves to the next mic (left, right,
+   rear) when one sits at the noise floor, because a dead head mic is pure silence. The buffer arrives
    as `bytes` or (with libqi-python 3) as a latin-1 `str`; `audio_in.py` normalises both.
 5. **Speech segmentation on the laptop.** 20 ms frames → VAD → utterance when 450 ms of
    trailing silence (`PEPPER_VAD_END_SILENCE_MS`). While the robot speaks (`tts.started`…`tts.finished`
@@ -180,7 +197,8 @@ only cross-thread fan-out point and is thread-safe.
   IP-or-localhost `Host` check keep other web pages (including DNS rebinding) from posting to
   it. `stop` is accepted from any device so every viewer has an emergency stop.
 * Shutdown restores autonomous life (if we disabled it), security distances, stops the
-  base, unsubscribes camera and audio.
+  base, unsubscribes camera and audio. SIGTERM is turned into SIGINT (`cli.stop_on_signals`) so
+  `kill`, systemd and the like take this path too; Python's default SIGTERM exit would skip it.
 
 ## 6. Extension points
 

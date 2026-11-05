@@ -77,6 +77,8 @@ class Settings:
     # --- audio / speech ---------------------------------------------------
     audio_enabled: bool = field(default_factory=lambda: _env_bool("AUDIO", True))
     audio_rate: int = field(default_factory=lambda: _env_int("AUDIO_RATE", 16000))
+    #: auto | front | left | right | rear  (auto = first mic that isn't dead, front preferred)
+    mic: str = field(default_factory=lambda: _env("MIC", "auto") or "auto")
     listening: bool = field(default_factory=lambda: _env_bool("LISTENING", True))
     barge_in: bool = field(default_factory=lambda: _env_bool("BARGE_IN", False))
     #: faster-whisper | openai | none
@@ -119,7 +121,9 @@ class Settings:
         if self.stt_backend not in ("faster-whisper", "openai", "none"):
             raise ValueError("stt backend must be faster-whisper, openai or none")
         if self.audio_rate not in (16000, 48000):
-            raise ValueError("audio rate must be 16000 (front mic) or 48000 (4 channels)")
+            raise ValueError("audio rate must be 16000 (one mic) or 48000 (4 channels)")
+        if self.mic not in ("auto", "front", "left", "right", "rear"):
+            raise ValueError("mic must be auto, front, left, right or rear")
 
     def apply_overrides(self, overrides: dict[str, object]) -> Settings:
         names = {f.name for f in fields(self)}

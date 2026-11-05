@@ -58,7 +58,7 @@ def test_listener_segments_speech_and_emits_final() -> None:
     robot = FakeRobot()
     robot.set_audio_source(speech_then_silence)
     bus = EventBus()
-    mic = MicrophoneStream(FakeConnection(robot), 16000)
+    mic = MicrophoneStream(FakeConnection(robot), 16000, "front")
     stt = StubSTT()
     listener = Listener(mic, EnergyVad(min_rms=1000), stt, bus, FakeSpeechState(), end_silence_ms=300,
                         min_speech_ms=200, pre_roll_ms=100)
@@ -82,7 +82,7 @@ def test_listener_is_muted_while_robot_speaks() -> None:
     robot = FakeRobot()
     robot.set_audio_source(speech_then_silence)
     bus = EventBus()
-    mic = MicrophoneStream(FakeConnection(robot), 16000)
+    mic = MicrophoneStream(FakeConnection(robot), 16000, "front")
     state = FakeSpeechState()
     state.speaking = True
     stt = StubSTT()

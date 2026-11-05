@@ -1,15 +1,18 @@
 """Chest tablet (ALTabletService). Calls that can block for seconds (``showWebview``)
-run on a worker thread so a tool call returns immediately."""
+run on one worker thread, in order, so a tool call returns immediately and the last thing asked
+for is the last thing shown. A game can ``hold`` the tablet so nothing else covers its board."""
 
 from __future__ import annotations
 
 import html as html_lib
 import logging
+import queue
 import threading
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import quote
 
-from pepper_mcp.robot.connection import RobotConnection
+from pepper_mcp.robot.connection import RobotConnection, RobotError
 
 log = logging.getLogger(__name__)
 
@@ -28,10 +31,19 @@ def text_page(text: str, background: str = "#0b1020", color: str = "#eaf2ff", fo
     )
 
 
+class TabletBusy(RobotError):
+    """The tablet is held (a game board is on it) by someone other than the caller."""
+
+
 class Tablet:
     def __init__(self, conn: RobotConnection):
         self.conn = conn
         self.last: dict[str, Any] | None = None
+        #: who holds the screen (e.g. "tictactoe"); others may not replace or hide it
+        self.holder: str | None = None
+        self._jobs: queue.SimpleQueue[Callable[[], None]] = queue.SimpleQueue()
+        self._worker: threading.Thread | None = None
+        self._worker_lock = threading.Lock()
 
     @property
     def tablet(self) -> Any:
@@ -40,6 +52,21 @@ class Tablet:
     def available(self) -> bool:
         return self.conn.has_service("ALTabletService")
 
+    # ---------------------------------------------------------------- ownership
+    def hold(self, owner: str) -> None:
+        """Reserve the screen for ``owner``: other callers get :class:`TabletBusy`."""
+        self.holder = owner
+
+    def release(self, owner: str) -> None:
+        if self.holder == owner:
+            self.holder = None
+
+    def _check(self, owner: str | None) -> None:
+        if self.holder is not None and owner != self.holder:
+            raise TabletBusy(f"the {self.holder} board is on the tablet; leave it there "
+                             f"(call {self.holder}_stop first to use the tablet for something else)")
+
+    # ---------------------------------------------------------------- worker
     def _bg(self, fn: str, *args: Any) -> None:
         tablet = self.tablet
 
@@ -49,38 +76,61 @@ class Tablet:
             except Exception as exc:
                 log.warning("tablet %s failed: %s", fn, exc)
 
-        threading.Thread(target=_run, name="tablet", daemon=True).start()
+        self._enqueue(_run)
 
-    def show_html(self, html: str) -> None:
+    def _enqueue(self, job: Callable[[], None]) -> None:
+        self._jobs.put(job)
+        with self._worker_lock:
+            if self._worker is None:
+                self._worker = threading.Thread(target=self._drain, name="tablet", daemon=True)
+                self._worker.start()
+
+    def _drain(self) -> None:
+        while True:
+            self._jobs.get()()
+
+    # ---------------------------------------------------------------- display
+    def show_html(self, html: str, owner: str | None = None) -> None:
+        self._check(owner)
         self.last = {"kind": "html", "size": len(html)}
         uri = "data:text/html;charset=utf-8," + quote(html)
         self._bg("showWebview", uri)
 
     def show_text(self, text: str, background: str = "#0b1020", color: str = "#eaf2ff", font_px: int = 64) -> None:
-        self.last = {"kind": "text", "text": text}
+        self._check(None)
         self.show_html(text_page(text, background, color, font_px))
+        self.last = {"kind": "text", "text": text}
 
-    def show_url(self, url: str) -> None:
+    def show_url(self, url: str, owner: str | None = None) -> None:
+        self._check(owner)
         self.last = {"kind": "url", "url": url}
         self._bg("showWebview", url)
 
     def show_image(self, url: str) -> None:
+        self._check(None)
         self.last = {"kind": "image", "url": url}
         self._bg("showImage", url)
 
-    def hide(self) -> None:
+    def hide(self, owner: str | None = None) -> None:
+        self._check(owner)
         self.last = None
         tablet = self.tablet
-        for fn in ("hideWebview", "hideImage", "hide"):
-            try:
-                getattr(tablet, fn)()
-            except Exception:
-                pass
+
+        def _run() -> None:
+            for fn in ("hideWebview", "hideImage", "hide"):
+                try:
+                    getattr(tablet, fn)()
+                except Exception:
+                    pass
+
+        # Queued behind pending shows, or a slow showWebview would bring the page back after it.
+        self._enqueue(_run)
 
     def execute_js(self, script: str) -> None:
         self._bg("executeJS", script)
 
     def play_video(self, url: str) -> None:
+        self._check(None)
         self.last = {"kind": "video", "url": url}
         self._bg("playVideo", url)
 

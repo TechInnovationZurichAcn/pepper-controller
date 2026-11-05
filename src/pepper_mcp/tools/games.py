@@ -14,6 +14,8 @@ from pydantic import Field
 from pepper_mcp.games.tictactoe import static_board_html
 from pepper_mcp.tools._common import ACTION, READ_ONLY, tool
 
+OWNER = "tictactoe"  # holds the tablet while a board is shown
+
 HINTS = {
     "interactive": "The board is on the tablet: the person taps a square and you answer automatically. "
                    "Spoken moves work too (tictactoe_move). Comment on game.move / game.over events.",
@@ -32,20 +34,24 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         tablet = rt.tablet
         if tablet is None or not tablet.available():
             display = "unavailable"
-        elif rt.preview is not None and rt.preview.base_url:
-            # The game id in the query string defeats the WebView cache between games.
-            tablet.show_url(f"{rt.preview.base_url}/game/tictactoe?g={state['game_id']}")
-            display = "interactive"
         else:
-            tablet.show_html(static_board_html(state))
-            display = "static"
+            # Held until tictactoe_stop: the model likes to put "Let's play!" on the tablet right
+            # after starting, which would replace the board.
+            tablet.hold(OWNER)
+            if rt.preview is not None and rt.preview.base_url:
+                # The game id in the query string defeats the WebView cache between games.
+                tablet.show_url(f"{rt.preview.base_url}/game/tictactoe?g={state['game_id']}", owner=OWNER)
+                display = "interactive"
+            else:
+                tablet.show_html(static_board_html(state), owner=OWNER)
+                display = "static"
         game.set_display(display)
         return display
 
     def refresh(state: dict[str, Any]) -> dict[str, Any]:
         # The interactive page polls on its own; the static one has to be re-sent after each move.
         if state.get("display") == "static" and rt.tablet is not None:
-            rt.tablet.show_html(static_board_html(state))
+            rt.tablet.show_html(static_board_html(state), owner=OWNER)
         return state
 
     @tool(mcp, ACTION)
@@ -57,7 +63,8 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                                                 "out-forked; easy plays mostly at random")] = "medium",
     ) -> dict[str, Any]:
         """Play tic-tac-toe against the person on Pepper's tablet. Use when someone wants to play a
-        game. Pepper's moves are made automatically right after the person's; you only cheer, tease
+        game. This puts the board on the tablet by itself: don't show text on the tablet as well.
+        Pepper's moves are made automatically right after the person's; you only cheer, tease
         and comment. Squares are numbered 1-9: 1 2 3 top row, 4 5 6 middle, 7 8 9 bottom. Starting
         again replaces the current game (the score is kept)."""
         state = game.start(human_symbol, human_first, difficulty)
@@ -82,6 +89,8 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
     def tictactoe_stop(hide_tablet: bool = True) -> dict[str, Any]:
         """End the tic-tac-toe game (e.g. the person wants to stop) and optionally clear the tablet."""
         state = game.stop()
-        if hide_tablet and rt.tablet is not None:
-            rt.tablet.hide()
+        if rt.tablet is not None:
+            rt.tablet.release(OWNER)
+            if hide_tablet:
+                rt.tablet.hide()
         return state

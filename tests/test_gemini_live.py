@@ -17,10 +17,15 @@ pytest.importorskip("google.genai")
 from pepper_mcp.gemini_live import (
     EXCLUDED_TOOLS,
     KEY_VAR,
+    PERSONA,
     EchoGate,
     GeminiPepper,
+    SpeechFilter,
+    _parse,
+    clean_transcript,
     format_event,
     load_api_key,
+    supports_async_tools,
     tool_declarations,
     tool_response,
 )
@@ -119,6 +124,112 @@ async def test_tool_exception_is_reported_to_gemini_not_raised() -> None:
     assert "error" in session.tool_responses[0].response
 
 
+async def test_actions_run_in_the_background_and_queries_block() -> None:
+    async with connected() as client:
+        tools = (await client.list_tools()).tools
+    decls = {d["name"]: d for d in tool_declarations(tools)}
+    for name in ("play_gesture", "move", "turn", "set_leds", "look_at_person", "stop_motion", "tictactoe_start"):
+        assert decls[name]["behavior"] == "NON_BLOCKING", name
+    for name in ("get_people", "camera_snapshot", "list_animations", "analyze_face"):
+        assert "behavior" not in decls[name], name  # the model needs the answer before it speaks
+    assert not any("behavior" in d for d in tool_declarations(tools, non_blocking=False))
+    assert supports_async_tools("gemini-3.8-live")
+    assert not supports_async_tools("gemini-3.1-flash-live-preview")
+    # The declarations must survive the SDK's config validation.
+    bridge = _bridge()
+    config = bridge._config(list(decls.values()), "sys")
+    move = next(f for f in config.tools[0].function_declarations if f.name == "move")
+    assert move.behavior.value == "NON_BLOCKING"
+    assert config.output_audio_transcription is not None
+
+
+async def test_background_tool_results_go_back_silent_and_failures_when_idle() -> None:
+    from google.genai import types
+
+    async with connected() as client:
+        bridge = _bridge()
+        bridge.background_tools = frozenset({"play_gesture", "set_leds"})
+        session = RecordingSession()
+        await bridge._run_tools(session, client, client.rt, [
+            Call("play_gesture", {"name": "wave"}, "a"),
+            Call("set_leds", {"group": "nope", "color": "red"}, "b"),
+            Call("get_battery", {}, "c"),
+        ])
+    ok, bad, query = session.tool_responses
+    assert ok.scheduling == types.FunctionResponseScheduling.SILENT and ok.response["scheduling"] == "SILENT"
+    assert bad.scheduling == types.FunctionResponseScheduling.WHEN_IDLE and "error" in bad.response
+    assert query.scheduling is None and "scheduling" not in query.response
+
+
+# ---------------------------------------------------------------- speech filter
+def _turn(f: SpeechFilter, *steps: str | bytes) -> list[bytes]:
+    played: list[bytes] = []
+    for step in steps:
+        played += f.audio(step) if isinstance(step, bytes) else f.text(step)
+    return played + f.end()
+
+
+def test_placeholder_turns_never_reach_the_speakers() -> None:
+    f = SpeechFilter(["play_gesture", "wave", "shake_head"])
+    assert _turn(f, b"a", "<no speech>", b"b", "{pause}", b"c") == []
+    assert _turn(f, b"a", "No ", b"b", "speech.") == []
+    assert _turn(f, b"a", "Wave", b"b") == []  # narrating the gesture it is about to play
+    assert _turn(f, b"a", "play gesture", b"b") == []
+    assert _turn(f, b"a", "Shake", b"b", " head.") == []
+
+
+def test_real_speech_plays_at_once_and_whole() -> None:
+    f = SpeechFilter(["wave"])
+    assert f.audio(b"a") == []  # held until the transcript arrives
+    assert f.text("Hello there!") == [b"a"]
+    assert f.audio(b"b") == [b"b"]
+    assert f.end() == []
+    assert _turn(f, b"a", "Wave", b"b", " to me again!", b"c") == [b"a", b"b", b"c"]
+    assert _turn(f, b"a", b"b") == [b"a", b"b"]  # no transcript at all: never swallow the answer
+    assert _turn(f, b"a", "<no speech>", b"b", " Oh, hi!", b"c") == [b"c"]
+
+
+def test_late_transcript_only_delays_speech_briefly() -> None:
+    now = [100.0]
+    f = SpeechFilter(clock=lambda: now[0])
+    assert f.audio(b"a") == []
+    now[0] += SpeechFilter.HOLD_S / 2
+    assert f.audio(b"b") == []
+    now[0] += SpeechFilter.HOLD_S
+    assert f.audio(b"c") == [b"a", b"b", b"c"]
+    assert f.text("<no speech>") == [] and f.audio(b"d") == [b"d"]  # too late to take back
+
+
+async def test_receive_drops_placeholder_turns_and_plays_real_ones() -> None:
+    def msg(text: str | None = None, audio: bytes | None = None, done: bool = False) -> Any:
+        part = type("P", (), {"inline_data": type("D", (), {"data": audio})()})()
+        sc = type("SC", (), {
+            "interrupted": False, "input_transcription": None, "turn_complete": done,
+            "output_transcription": type("T", (), {"text": text})() if text else None,
+            "model_turn": type("MT", (), {"parts": [part]})() if audio else None,
+        })()
+        return type("M", (), {"session_resumption_update": None, "go_away": None, "tool_call": None,
+                              "server_content": sc})()
+
+    class Session(RecordingSession):
+        turns = [[msg(audio=b"x"), msg(text="<no speech>"), msg(audio=b"y"), msg(done=True)],
+                 [msg(audio=b"h"), msg(text="Hi!"), msg(audio=b"i"), msg(done=True)]]
+
+        async def receive(self):  # type: ignore[no-untyped-def]
+            for m in self.turns.pop(0) if self.turns else []:
+                yield m
+
+    bridge = _bridge()
+    task = asyncio.create_task(bridge._receive(Session(), None, None))
+    await asyncio.sleep(0.2)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    played = []
+    while not bridge.voice_q.empty():
+        played.append(bridge.voice_q.get_nowait())
+    assert played == [b"h", b"i"]
+
+
 # ---------------------------------------------------------------- events
 def test_events_worth_hearing_about_are_forwarded() -> None:
     assert format_event("touch.start", {"part": "head"}).startswith("[robot event] touch.start")
@@ -127,8 +238,34 @@ def test_events_worth_hearing_about_are_forwarded() -> None:
     assert format_event("task.finished", {"kind": "turn", "ok": False, "error": "obstacle"})
     assert format_event("task.finished", {"kind": "gesture", "ok": True}) is None
     assert format_event("task.finished", {"kind": "gesture", "ok": False, "error": "x"})
+    # A successful move needs no words; a note would only make Gemini fill the turn with "no speech".
+    assert format_event("task.finished", {"kind": "turn", "ok": True}) is None
     assert format_event("sound.located", {"azimuth_deg": 4}) is None
     assert format_event("speech.final", {"text": "hi"}) is None  # Gemini hears for itself
+
+
+def test_body_reflexes_are_not_reported_so_gemini_does_not_narrate_them() -> None:
+    for reflex in ("attention", "greet", "touch_reaction", "low_battery"):
+        assert format_event("reflex.completed", {"reflex": reflex, "result": {"looked": True}}) is None
+    high_five = format_event("reflex.completed", {"reflex": "high_five", "result": {"touched": True}})
+    assert high_five and "touched" in high_five
+
+
+def test_silence_markers_are_not_shown_as_speech() -> None:
+    assert clean_transcript("<no speech>{pause}") == ""
+    assert clean_transcript(" (silence) ") == ""
+    assert clean_transcript("Hello there!{pause} Nice to see you.") == "Hello there! Nice to see you."
+
+
+def test_persona_forbids_narrating_actions_and_events() -> None:
+    assert "Act, don't narrate" in PERSONA
+    assert "say what you\nare doing" not in PERSONA
+
+
+def test_persona_formats_with_literal_brace_examples() -> None:
+    # Literal "{pause}" in the persona must be escaped or str.format raises KeyError at startup.
+    system = PERSONA.format(name="Pepper", language="English")
+    assert '"{pause}"' in system
 
 
 async def test_robot_events_reach_the_event_queue() -> None:
@@ -266,6 +403,16 @@ def test_api_key_from_dotenv_wins_over_environment(tmp_path, monkeypatch) -> Non
     assert load_api_key(str(env)) == "from-shell"
     monkeypatch.delenv(KEY_VAR)
     assert load_api_key(str(env)) is None
+
+
+# ---------------------------------------------------------------- CLI
+def test_mic_always_streams_at_geminis_input_rate(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    # 48 kHz buffers would be dropped by the bridge: Pepper would be silently deaf to Gemini.
+    monkeypatch.setenv("PEPPER_AUDIO_RATE", "48000")
+    settings, _ = _parse(["--fake"])
+    assert settings.audio_rate == 16000
+    with pytest.raises(SystemExit):
+        _parse(["--fake", "--audio-rate", "48000"])
 
 
 # ---------------------------------------------------------------- speaker stream

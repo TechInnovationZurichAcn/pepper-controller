@@ -14,7 +14,9 @@ class GreetReflex(Reflex):
     description = ("when a person appears within range after nobody was around, wave at them; "
                    "optionally say a greeting phrase (set params.phrase)")
     triggers = ("person.appeared",)
-    params: dict[str, Any] = {"phrase": "", "animation": "animations/Stand/Gestures/Hey_1",
+    # The server's own "wave" gesture rather than NAOqi's Hey_1: arm collision protection stops
+    # Hey_1 at shoulder height when the greeted person stands in front of the robot.
+    params: dict[str, Any] = {"phrase": "", "gesture": "wave",
                               "max_distance_m": 2.5, "quiet_period_s": 20.0}
     cooldown_s = 8.0
 
@@ -38,10 +40,6 @@ class GreetReflex(Reflex):
                                             "person_id": event.data.get("person_id")}, source="reflex")
         if self.params["phrase"]:
             rt.speech.say(self.params["phrase"], animated=False)
-        if self.params["animation"]:
-            _, fut = rt.animations.run_async(self.params["animation"])
-            try:
-                fut.wait(6000)
-            except Exception:
-                pass
+        if self.params["gesture"]:
+            rt.gestures.play(self.params["gesture"])
         return {"person_id": event.data.get("person_id"), "greeted": True}

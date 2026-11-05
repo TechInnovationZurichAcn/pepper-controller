@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 
 from pepper_mcp import __version__
@@ -43,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--camera-fps", type=int)
     p.add_argument("--camera-res", dest="camera_resolution", choices=["qqvga", "qvga", "vga"])
     p.add_argument("--audio-rate", type=int, choices=[16000, 48000])
+    p.add_argument("--mic", choices=["auto", "front", "left", "right", "rear"],
+                   help="head microphone to listen with (default auto: skips dead mics, front preferred)")
     p.add_argument("--log-level", help="DEBUG, INFO, WARNING")
     p.add_argument("--version", action="version", version=f"pepper-mcp {__version__}")
     return p
@@ -64,9 +67,25 @@ def configure_logging(level: str, transport: str) -> None:
     _ = transport
 
 
+def stop_on_signals() -> None:
+    """Make SIGTERM (kill, systemd, docker stop) shut down like Ctrl+C.
+
+    Python's default SIGTERM action exits without running any ``finally``, which would leave the
+    robot with the server's reduced base safety distances and a dangling audio subscription.
+    SIGTERM is turned into SIGINT rather than a raised KeyboardInterrupt because asyncio's runner
+    answers SIGINT by cancelling the main task, which unwinds lifespans and ``finally`` blocks;
+    an exception thrown out of the event loop's selector would skip them. SIGINT is re-armed too:
+    a launcher that starts us in the background may have ignored it. Call before the event loop
+    starts so the runner installs its handler.
+    """
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    signal.signal(signal.SIGTERM, lambda _signum, _frame: signal.raise_signal(signal.SIGINT))
+
+
 def main(argv: list[str] | None = None) -> None:
     settings = settings_from_args(argv)
     configure_logging(settings.log_level, settings.transport)
+    stop_on_signals()
     from pepper_mcp.server import create_server
 
     mcp = create_server(settings)

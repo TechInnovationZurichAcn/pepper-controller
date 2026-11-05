@@ -66,6 +66,7 @@ def state(rt: Any) -> dict[str, Any]:
         "audio_out": rt.audio_out is not None,
         "navigation": rt.navigator is not None,
     }
+    out["voice_agent"] = getattr(rt, "voice_agent", None)
     out["reflexes"] = _safe("reflexes", rt.reflexes.list) if rt.reflexes else []
     out["perception"] = None
     if rt.perception is not None:
@@ -130,6 +131,9 @@ def _reflex(rt: Any, a: dict[str, Any]) -> Any:
 
 
 def _listening(rt: Any, a: dict[str, Any]) -> Any:
+    if rt.listener is None and rt.mic is not None and rt.settings.stt_backend == "none":
+        raise ActionError("the server's own speech-to-text is off (--stt none). Under pepper-mcp-gemini "
+                          "that is expected: Gemini listens to Pepper's microphone directly")
     listener = _need(rt.listener, "listener (microphone + STT)")
     if "barge_in" in a:
         listener.barge_in = _bool(a, "barge_in")

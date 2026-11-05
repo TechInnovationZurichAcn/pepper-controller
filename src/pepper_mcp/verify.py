@@ -82,7 +82,8 @@ def main(argv: list[str] | None = None) -> None:
         rt.mic.stop()
         if st["buffers"] == 0:
             raise RuntimeError(f"no processRemote callbacks received ({st}) – check firewall / listen URL")
-        return f"{st['callbacks_per_s']} callbacks/s, level_rms={st['level_rms']}"
+        return (f"{st['callbacks_per_s']} callbacks/s, level_rms={st['level_rms']}, "
+                f"mic={st['mic']} energies={st['mic_energy']}")
 
     check("audio_callback", audio)
 

@@ -352,3 +352,61 @@ def test_gemini_hears_pepper_moves_and_results_not_each_tap() -> None:
         "[robot event] game.move")
     assert format_event("game.move", {"player": "human", "cell": 3, "next": None}) is not None
     assert "human" in format_event("game.over", {"result": "human", "winning_cells": [1, 2, 3]})
+
+
+# ------------------------------------------------------------------ the board owns the tablet
+async def test_text_cannot_cover_the_board_while_a_game_is_shown() -> None:
+    # On the robot Gemini said "let's play" and put that text on the tablet right after (or
+    # instead of) tictactoe_start, so the board never appeared.
+    async with connected() as client:
+        tablet = client.robot.services["ALTabletService"]  # type: ignore[attr-defined]
+        await client.call_tool("tictactoe_start", {})
+        board = tablet_shown(tablet)
+        for name, args in (("tablet_show_text", {"text": "Let's play tic-tac-toe!"}),
+                           ("tablet_show_html", {"html": "<p>hi</p>"}),
+                           ("tablet_show_url", {"url": "http://example.com"}),
+                           ("tablet_show_image", {"url": "http://example.com/a.png"}),
+                           ("tablet_hide", {})):
+            res = await client.call_tool(name, args)
+            assert res.is_error and "tictactoe_stop" in res.content[0].text, name
+        time.sleep(0.1)
+        assert tablet.count("showWebview") == 1 and tablet_shown(tablet) == board
+        assert tablet.count("hideWebview") == 0
+
+        await client.call_tool("tictactoe_move", {"cell": 5})  # the game itself still redraws
+        assert tablet_shown(tablet, after=2) != board
+
+        await client.call_tool("tictactoe_stop", {})
+        assert not (await client.call_tool("tablet_show_text", {"text": "bye"})).is_error
+        assert "bye" in tablet_shown(tablet, after=3)
+
+
+def test_tablet_calls_reach_the_robot_in_order() -> None:
+    # One thread per call let a slow text page land after the board and cover it.
+    import threading
+
+    from pepper_mcp.robot.tablet import Tablet
+
+    shown: list[str] = []
+    first = threading.Event()
+
+    class SlowTablet:
+        def showWebview(self, url: str) -> bool:
+            if not shown and not first.is_set():
+                first.set()
+                time.sleep(0.2)
+            shown.append(url)
+            return True
+
+    class Conn:
+        def service(self, name: str) -> Any:
+            return svc
+
+    svc = SlowTablet()
+    tablet = Tablet(Conn())  # type: ignore[arg-type]
+    tablet.show_text("Let's play")
+    tablet.show_url("http://board")
+    deadline = time.monotonic() + 2
+    while len(shown) < 2 and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert shown[-1] == "http://board" and shown[0].startswith("data:text/html")

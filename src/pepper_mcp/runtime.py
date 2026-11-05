@@ -67,8 +67,10 @@ class Runtime:
         self.asr: OnRobotASR | None = OnRobotASR(conn, self.bus, self.memory, settings.language)
         self.cameras: Cameras | None = Cameras(conn, settings.camera_resolution, settings.camera_fps,
                                                settings.jpeg_quality)
-        self.mic: MicrophoneStream | None = MicrophoneStream(conn, settings.audio_rate)
+        self.mic: MicrophoneStream | None = MicrophoneStream(conn, settings.audio_rate, settings.mic)
         self.listener = None
+        #: set by an in-process voice agent (pepper-mcp-gemini) that takes the mic stream itself
+        self.voice_agent: str | None = None
         self.reflexes = None
         self.vision = None
         self.preview = None

@@ -70,6 +70,9 @@ class KeyframeGesture(Gesture):
     keyframes: list[Keyframe] = field(default_factory=list)
     return_to_rest: bool = True
     speech: str | None = None  # optional phrase spoken at the start
+    # External arm collision protection freezes an arm that rises toward someone standing in
+    # front of the robot, so gestures made *for* that person stall halfway up.
+    needs_arm_collision_off: bool = False
 
     def __post_init__(self) -> None:
         self.validate()
@@ -106,25 +109,39 @@ class KeyframeGesture(Gesture):
                 times.append(kf.t_s)
             angle_lists.append(angles)
             time_lists.append(times)
-        fut = ctx.motion.interpolate_async(names, angle_lists, time_lists, True)
-        deadline = time.monotonic() + self.keyframes[-1].t_s + 2.0
-        while not fut.isFinished():
-            if stop_event.is_set():
-                try:
-                    fut.cancel()
-                except Exception:
-                    pass
-                ctx.motion.stop_all()
-                return {"interrupted": True}
-            if time.monotonic() > deadline:
-                break
-            time.sleep(0.02)
-        if self.return_to_rest and not stop_event.is_set():
+        collision_off = self.needs_arm_collision_off and ctx.disable_arm_collision
+        if collision_off:
             try:
-                ctx.motion.go_to_posture("StandInit", 0.5)
+                ctx.motion.set_collision_protection("Arms", False)
             except Exception as exc:
-                log.debug("return to rest: %s", exc)
-        return {"interrupted": False}
+                log.debug("collision protection off failed: %s", exc)
+        try:
+            fut = ctx.motion.interpolate_async(names, angle_lists, time_lists, True)
+            deadline = time.monotonic() + self.keyframes[-1].t_s + 2.0
+            while not fut.isFinished():
+                if stop_event.is_set():
+                    try:
+                        fut.cancel()
+                    except Exception:
+                        pass
+                    ctx.motion.stop_all()
+                    return {"interrupted": True}
+                if time.monotonic() > deadline:
+                    break
+                time.sleep(0.02)
+            # Lower the arm while protection is still off, or it can freeze on the way down too.
+            if self.return_to_rest and not stop_event.is_set():
+                try:
+                    ctx.motion.go_to_posture("StandInit", 0.5)
+                except Exception as exc:
+                    log.debug("return to rest: %s", exc)
+            return {"interrupted": False}
+        finally:
+            if collision_off:
+                try:
+                    ctx.motion.set_collision_protection("Arms", True)
+                except Exception as exc:
+                    log.warning("could not re-enable arm collision protection: %s", exc)
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
@@ -263,7 +280,7 @@ _67_MID, _67_AMP, _67_HZ = 0.5, 0.4, 1.3
 
 def _67_setup(ctx: GestureContext, params: dict[str, Any]) -> None:
     ctx.motion.set_angles(_67_STATIC, 0.3)
-    if ctx.tablet is not None and ctx.assets_url is not None:
+    if ctx.tablet is not None and ctx.tablet.holder is None and ctx.assets_url is not None:
         url = ctx.assets_url("67.html")
         if url:
             threading.Thread(target=lambda: ctx.tablet.show_url(url), daemon=True).start()
@@ -288,7 +305,7 @@ def _67_step(t: float, params: dict[str, Any]) -> dict[str, float]:
 
 
 def _67_teardown(ctx: GestureContext, params: dict[str, Any]) -> None:
-    if ctx.tablet is not None:
+    if ctx.tablet is not None and ctx.tablet.holder is None:  # never wipe a game board
         threading.Thread(target=ctx.tablet.hide, daemon=True).start()
 
 
@@ -327,18 +344,28 @@ def _kf(t: float, **joints_deg: float) -> Keyframe:
 
 
 def builtin_gestures() -> list[Gesture]:
-    down = {"LShoulderPitch": 88, "RShoulderPitch": 88, "LShoulderRoll": 8, "RShoulderRoll": -8,
-            "LElbowRoll": -25, "RElbowRoll": 25}
+    # Every arm joint is set (matching the "down" arm_pose / StandInit): a forearm left twisted
+    # by an earlier gesture hangs into the hip or tablet and collision avoidance stops that arm.
+    untwist = {"LElbowYaw": -70, "RElbowYaw": 70, "LWristYaw": 0, "RWristYaw": 0,
+               "LElbowRoll": -25, "RElbowRoll": 25}
+    down = {"LShoulderPitch": 88, "RShoulderPitch": 88, "LShoulderRoll": 8, "RShoulderRoll": -8, **untwist}
     return [
         HighFiveGesture(),
+        # Raise into the (robot-validated) high-five pose, tilted out to the side, then swing the
+        # forearm side to side in the frontal plane: ElbowYaw ~0 makes ElbowRoll bend the hand
+        # toward/away from the head instead of toward the person.
         KeyframeGesture(
-            name="wave", description="wave the right hand", duration_s=0, tags=["social", "greeting"],
+            name="wave", description="raise the right hand high and wave hello", duration_s=0,
+            tags=["social", "greeting"], needs_arm_collision_off=True,
             keyframes=[
-                _kf(0.6, RShoulderPitch=-45, RShoulderRoll=-25, RElbowYaw=60, RElbowRoll=85, RWristYaw=0, RHand=1),
-                _kf(1.0, RElbowRoll=50, RWristYaw=-30),
-                _kf(1.4, RElbowRoll=85, RWristYaw=30),
-                _kf(1.8, RElbowRoll=50, RWristYaw=-30),
-                _kf(2.2, RElbowRoll=85, RWristYaw=0),
+                _kf(1.0, RShoulderPitch=-75, RShoulderRoll=-30, RElbowYaw=-10, RElbowRoll=30, RWristYaw=60,
+                    RHand=1),
+                _kf(1.35, RShoulderRoll=-38, RElbowRoll=8),
+                _kf(1.7, RShoulderRoll=-24, RElbowRoll=55),
+                _kf(2.05, RShoulderRoll=-38, RElbowRoll=8),
+                _kf(2.4, RShoulderRoll=-24, RElbowRoll=55),
+                _kf(2.75, RShoulderRoll=-38, RElbowRoll=8),
+                _kf(3.1, RShoulderRoll=-30, RElbowRoll=30),
             ]),
         KeyframeGesture(
             name="celebrate", description="both arms up in the air, happy", duration_s=0, tags=["emotion"],
@@ -366,16 +393,14 @@ def builtin_gestures() -> list[Gesture]:
             keyframes=[_kf(0.8, RShoulderPitch=5, RShoulderRoll=-10, RElbowYaw=70, RElbowRoll=15, RWristYaw=0, RHand=0),
                        _kf(2.5, RShoulderPitch=5)]),
         KeyframeGesture(
-            name="thinking_pose", description="hand on chin, looking up, thinking", duration_s=0, tags=["emotion"],
-            keyframes=[_kf(1.0, RShoulderPitch=-5, RShoulderRoll=-5, RElbowYaw=50, RElbowRoll=85, RWristYaw=-40,
-                           RHand=0, HeadPitch=-15, HeadYaw=15),
-                       _kf(3.0, HeadYaw=-10)]),
-        KeyframeGesture(
             name="bow", description="bow forward politely", duration_s=0, tags=["social"],
             keyframes=[_kf(1.0, HipPitch=-20, HeadPitch=20, **down), _kf(2.2, HipPitch=-20), _kf(3.2, HipPitch=0, HeadPitch=0)]),
         KeyframeGesture(
             name="arms_down", description="return both arms to a relaxed position", duration_s=0,
-            tags=["utility"], return_to_rest=False, keyframes=[_kf(1.0, **down)]),
+            tags=["utility"], return_to_rest=False, needs_arm_collision_off=True,
+            # Untwist the forearms and open the shoulders slightly first (pitch held where it
+            # is), then lower: both arms clear the hips on the way down.
+            keyframes=[_kf(0.6, LShoulderRoll=12, RShoulderRoll=-12, **untwist), _kf(1.6, **down)]),
         ProceduralGesture(
             name="sixty_seven", description="the 67 meme: palms up, arms rocking like scales while "
             "saying 'six seven', GIF on the tablet", duration_s=6.0, tags=["emote", "fun"],
