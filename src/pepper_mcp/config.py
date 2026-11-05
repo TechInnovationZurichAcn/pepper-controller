@@ -32,6 +32,17 @@ def _env_float(name: str, default: float) -> float:
     return float(raw) if raw not in (None, "") else default
 
 
+#: PEPPER_* variables of removed features (server-side STT, standalone MCP transports); a stale
+#: .env that still sets them gets a warning instead of being ignored without a word.
+REMOVED_ENV = ("STT", "STT_MODEL", "STT_DEVICE", "STT_COMPUTE", "STT_LANGUAGE", "STT_URL", "STT_API_KEY",
+               "VAD_LEVEL", "VAD_END_SILENCE_MS", "VAD_MIN_SPEECH_MS", "VAD_MAX_S", "LISTENING", "BARGE_IN",
+               "ECHO_TAIL_MS", "MCP_TRANSPORT", "MCP_HOST", "MCP_PORT")
+
+
+def removed_env_vars() -> list[str]:
+    return [f"PEPPER_{name}" for name in REMOVED_ENV if f"PEPPER_{name}" in os.environ]
+
+
 @dataclass
 class Settings:
     # --- robot connection -------------------------------------------------
@@ -43,10 +54,7 @@ class Settings:
     ssh_user: str = field(default_factory=lambda: _env("SSH_USER", "nao") or "nao")
     ssh_password: str = field(default_factory=lambda: _env("SSH_PASSWORD", "pepper") or "pepper")
 
-    # --- MCP transport ----------------------------------------------------
-    transport: str = field(default_factory=lambda: _env("MCP_TRANSPORT", "stdio") or "stdio")
-    http_host: str = field(default_factory=lambda: _env("MCP_HOST", "127.0.0.1") or "127.0.0.1")
-    http_port: int = field(default_factory=lambda: _env_int("MCP_PORT", 8808))
+    # --- dashboard -------------------------------------------------------
     #: optional HTTP side channel (MJPEG, live audio, SSE events); 0 disables it
     preview_port: int = field(default_factory=lambda: _env_int("PREVIEW_PORT", 0))
     preview_host: str = field(default_factory=lambda: _env("PREVIEW_HOST", "0.0.0.0") or "0.0.0.0")
@@ -79,25 +87,6 @@ class Settings:
     audio_rate: int = field(default_factory=lambda: _env_int("AUDIO_RATE", 16000))
     #: auto | front | left | right | rear  (auto = first mic that isn't dead, front preferred)
     mic: str = field(default_factory=lambda: _env("MIC", "auto") or "auto")
-    listening: bool = field(default_factory=lambda: _env_bool("LISTENING", True))
-    barge_in: bool = field(default_factory=lambda: _env_bool("BARGE_IN", False))
-    #: faster-whisper | openai | none
-    stt_backend: str = field(default_factory=lambda: _env("STT", "faster-whisper") or "")
-    stt_model: str = field(default_factory=lambda: _env("STT_MODEL", "small") or "small")
-    stt_device: str = field(default_factory=lambda: _env("STT_DEVICE", "auto") or "auto")
-    stt_compute_type: str = field(default_factory=lambda: _env("STT_COMPUTE", "default") or "")
-    #: ISO language code for STT, empty = auto-detect
-    stt_language: str = field(default_factory=lambda: _env("STT_LANGUAGE", "en") or "")
-    stt_url: str = field(
-        default_factory=lambda: _env("STT_URL", "https://api.openai.com/v1/audio/transcriptions")
-        or ""
-    )
-    stt_api_key: str = field(default_factory=lambda: _env("STT_API_KEY", "") or "")
-    vad_aggressiveness: int = field(default_factory=lambda: _env_int("VAD_LEVEL", 2))
-    vad_end_silence_ms: int = field(default_factory=lambda: _env_int("VAD_END_SILENCE_MS", 450))
-    vad_min_speech_ms: int = field(default_factory=lambda: _env_int("VAD_MIN_SPEECH_MS", 250))
-    vad_max_utterance_s: float = field(default_factory=lambda: _env_float("VAD_MAX_S", 15.0))
-    tts_echo_tail_ms: int = field(default_factory=lambda: _env_int("ECHO_TAIL_MS", 350))
 
     # --- perception / reflexes -------------------------------------------
     perception_enabled: bool = field(default_factory=lambda: _env_bool("PERCEPTION", True))
@@ -114,12 +103,8 @@ class Settings:
     def validate(self) -> None:
         if not self.fake and not self.ip:
             raise ValueError("robot IP required: pass --ip <PEPPER_IP>, set PEPPER_IP, or use --fake")
-        if self.transport not in ("stdio", "streamable-http", "sse"):
-            raise ValueError(f"unknown transport {self.transport!r}")
         if self.camera_resolution not in ("qvga", "vga", "qqvga"):
             raise ValueError("camera resolution must be qqvga, qvga or vga")
-        if self.stt_backend not in ("faster-whisper", "openai", "none"):
-            raise ValueError("stt backend must be faster-whisper, openai or none")
         if self.audio_rate not in (16000, 48000):
             raise ValueError("audio rate must be 16000 (one mic) or 48000 (4 channels)")
         if self.mic not in ("auto", "front", "left", "right", "rear"):
@@ -135,8 +120,6 @@ class Settings:
 
     def summary(self) -> dict[str, object]:
         data = {f.name: getattr(self, f.name) for f in fields(self)}
-        if data.get("stt_api_key"):
-            data["stt_api_key"] = "***"
         if data.get("preview_token"):
             data["preview_token"] = "***"
         data["ssh_password"] = "***"

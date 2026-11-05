@@ -8,8 +8,8 @@ feels like talking to a person. Two latency classes are designed for separately:
 
 | Class | Budget | Path |
 |---|---|---|
-| **Reflex** (high five, look at speaker, greet, LED mood) | < 300 ms | robot event → laptop reflex → NAOqi call. No LLM in the loop. |
-| **Conversation** (hear → think → speak) | first words < 1.5 s | mic → VAD end-of-utterance (450 ms) → STT (local `small` model ≈ 400-800 ms, or cloud) → `speech.final` event unblocks `wait_for_event`/`listen` → LLM streams text → `say` per sentence (TTS start ≈ 300 ms) |
+| **Reflex** (high five, greet, touch reaction) | < 300 ms | robot event → laptop reflex → NAOqi call. No LLM in the loop. |
+| **Conversation** (hear → think → speak) | set by Gemini Live, not measured on this branch | head mic (16 kHz) → Gemini Live over the network (audio both ways, server-side turn detection) → voice (24 kHz) → speaker stream. The server adds only its own buffer (≈150 ms, §2.2) |
 
 Everything else (snapshots, state, long actions) is non-blocking: a tool call never
 waits on the robot unless the LLM asks it to (`wait=True`).
@@ -17,35 +17,29 @@ waits on the robot unless the LLM asks it to (`wait=True`).
 ## 2. Components
 
 ```
-                ┌──────────────────────────── laptop ───────────────────────────────┐
-                │                                                                   │
- LLM client ────┤ MCP (stdio / streamable-http)                                     │
- (Gemini, …)    │   server.py ── tools/*  resources  prompts                        │
-                │       │                                                           │
-                │   Runtime (runtime.py) ──── EventBus (robot/events.py)            │
-                │    │  │  │  │  │  │  │  │             ▲        ▲                   │
-                │    │  │  │  │  │  │  │  └ Reflexes ───┘        │ speech.final       │
-                │    │  │  │  │  │  │  └── Listener (speech/) ───┘  VAD → STT         │
-                │    │  │  │  │  │  └───── CameraStreams → JPEG cache → preview/MJPEG │
-                │    │  │  │  │  └──────── MicrophoneStream (qi service, processRemote)│
-                │    │  │  │  └─────────── Perception (ALMemory watch → events)       │
-                │    │  │  └────────────── Speech queue (ALAnimatedSpeech, futures)   │
-                │    │  └───────────────── Motion / Animation / Gestures / Tracker   │
-                │    └──────────────────── RobotConnection (qi.Application, services) │
-                └────────────────────────────────┬──────────────────────────────────┘
-                                                 │ tcp 9559 (qimessaging) + callbacks
-                                         ┌───────┴────────┐
-                                         │  Pepper NAOqi  │
-                                         └────────────────┘
+  Gemini Live (cloud)                      laptop: pepper-mcp-gemini (gemini_live.py)
+  ───────────────────                      ──────────────────────────────────────────────
+  mic audio (16 kHz)     ◀──────────────── head mic: MicrophoneStream (processRemote)
+  camera frame (1 fps)   ◀──────────────── CameraStreams.snapshot("top")
+  voice (24 kHz)         ────────────────▶ AudioOut → SpeakerStream (ALAudioDevice, 48 kHz)
+  function calls         ────────────────▶ in-memory MCP client → server.py → tools/*, resources
+  [robot event] notes    ◀──────────────── EventBus subscriber (touch, people, motion.blocked, …)
+
+         Runtime (runtime.py): reflexes, motion, gestures, tracker, navigation, tablet, perception,
+         speech queue, camera grabbers → JPEG cache → preview/MJPEG
+                                   │ tcp 9559 (qimessaging) + callbacks
+                           ┌───────┴────────┐
+                           │  Pepper NAOqi  │
+                           └────────────────┘
 ```
 
 ### 2.1 Package layout
 
 ```
 src/pepper_mcp/
-  cli.py            argparse entry point (`pepper-mcp`)
+  cli.py            robot options and signal handling shared by `pepper-mcp-gemini`
   config.py         Settings dataclass (env PEPPER_* + CLI flags)
-  server.py         builds the MCPServer, lifespan starts/stops the Runtime
+  server.py         builds the MCPServer (tools and resources) around a Runtime
   runtime.py        wires subsystems together, owns start/stop order
   robot/            one module per robot concern, all built on RobotConnection
     connection.py   qi.Application (listening session!), service cache, futures→asyncio
@@ -61,10 +55,6 @@ src/pepper_mcp/
     audio_out.py    ALAudioPlayer / volume / upload
     leds.py, tablet.py, tracker.py, navigation.py, awareness.py, system.py
     fake.py         in-memory fake NAOqi (tests, `--fake` dev mode)
-  speech/
-    vad.py          WebRTC VAD or energy VAD (20 ms frames)
-    stt.py          SpeechToText backends: faster-whisper, OpenAI-compatible HTTP, null
-    listener.py     segmenter + echo gate + STT worker → speech.* events
   vision/
     hand_raise.py   optional laptop-side pose detector (MediaPipe) → gesture.hand_raised
   reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery)
@@ -88,8 +78,10 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   to the 48 kHz stereo `ALAudioDevice.sendRemoteBufferToOutput` wants. That call returns
   immediately, so the stream paces itself 150 ms ahead of playback; a barge-in or reconnect
   therefore leaves at most ~0.25 s queued on the robot.
-- **Tools:** every MCP tool except speech/hearing ones (Gemini is the voice and ears) and the
-  ones that wait (`wait_for_event`, `wait_task`). Schemas go through unchanged
+- **Tools:** every MCP tool except the 13 in `EXCLUDED_TOOLS`: the speech output tools (Gemini is
+  the voice), tools that would fight the session (blocking waits such as `recognize_keywords`,
+  `record_clip`, `wait_for_event`, `wait_task`; QiChat dialogs; `camera_stream`), and `upload_audio`,
+  which reads files on the laptop. Schemas go through unchanged
   (`parameters_json_schema`), so the server's limits apply. Actions (tools without
   `read_only_hint`, except `analyze_face`) are declared `NON_BLOCKING`: the model keeps talking
   while they run, and their result goes back with `scheduling: SILENT` (`WHEN_IDLE` on failure).
@@ -142,22 +134,20 @@ the server.
    the stream first reads NAOqi's per-mic energy meters and moves to the next mic (left, right,
    rear) when one sits at the noise floor, because a dead head mic is pure silence. The buffer arrives
    as `bytes` or (with libqi-python 3) as a latin-1 `str`; `audio_in.py` normalises both.
-5. **Speech segmentation on the laptop.** 20 ms frames → VAD → utterance when 450 ms of
-   trailing silence (`PEPPER_VAD_END_SILENCE_MS`). While the robot speaks (`tts.started`…`tts.finished`
-   + 350 ms tail, `PEPPER_ECHO_TAIL_MS`) the gate drops frames so Pepper never transcribes itself. Optional
-   barge-in stops TTS when a person starts talking.
-6. **STT runs in a worker thread, results are events.** `speech.final` carries the text
-   and the measured STT latency. `listen` is sugar for `wait_for_event(["speech.final"])`.
-7. **Streaming TTS.** `say` enqueues and returns in < 5 ms; a single worker drains the
+5. **No laptop-side segmentation.** Gemini Live's server-side automatic activity detection finds
+   the end of each turn in the 16 kHz stream. The bridge only mutes that stream while Pepper makes
+   sound (`EchoGate`, §2.2), so Pepper does not transcribe itself.
+6. **Streaming TTS.** `say` enqueues and returns in < 5 ms; a single worker drains the
    queue with `ALAnimatedSpeech.say(_async=True)` so sentences play back-to-back with
    gestures while the LLM is still generating the next one. `stop_speaking` flushes.
-8. **Camera frames are grabbed continuously, encoded lazily.** A grabber thread per
+   Under `pepper-mcp-gemini` Gemini speaks through the speaker stream instead, so `say` is not offered to it.
+7. **Camera frames are grabbed continuously, encoded lazily.** A grabber thread per
    camera keeps the newest RGB frame; JPEG encoding happens once per distinct frame on
    first request (snapshot tool, resource, MJPEG preview share the cache).
-9. **Velocity watchdog.** `move()` re-sends `moveToward` and stops the base when the
+8. **Velocity watchdog.** `move()` re-sends `moveToward` and stops the base when the
    requested duration elapses or the connection drops, so an LLM that forgets to stop
    cannot drive Pepper into a wall.
-10. **Reflexes are plain event subscribers** running on the EventBus thread pool.
+9. **Reflexes are plain event subscribers** running on the EventBus thread pool.
     They publish `reflex.triggered/completed` so the LLM stays informed and can disable
     them with `set_reflex`.
 
@@ -169,7 +159,7 @@ the server.
 | MCP worker threads | synchronous tool bodies (blocking qi calls are fine here) |
 | qi network threads | `processRemote`, signal callbacks → hand off immediately to queues |
 | `speech-tts` | drains the TTS queue |
-| `listener` + `stt` | VAD segmentation / transcription |
+| asyncio loop (`gemini_live`) | Live session send/receive loops, tool-call tasks, `[robot event]` notes |
 | `camera-<id>` | `getImageRemote` loop |
 | `memory-poll` | polled ALMemory keys |
 | `watchdog` | base velocity expiry, connection health |
@@ -207,14 +197,12 @@ only cross-thread fan-out point and is thread-safe.
   `define_gesture` at runtime.
 * **New reflex:** subclass `reflexes.base.Reflex`, declare `triggers`, implement
   `on_event`; register in `reflexes/__init__.py`.
-* **New STT/VAD backend:** implement `speech.stt.SpeechToText` / `speech.vad.VAD`.
 * **New perception source:** `perception.py` → `MemoryWatcher.watch(key, handler)`.
 
 ## 7. Verification plan
 
 Offline (this repository, no robot): `pytest` runs the server against `robot/fake.py`,
-covering tool registration, event bus wake-ups, listener segmentation with synthetic
-audio, gesture limits, task lifecycle, the attention reflex, motion failure reporting and
+covering tool registration, event bus wake-ups, gesture limits, task lifecycle, the attention reflex, motion failure reporting and
 the in-process MCP client.
 
 On the robot: `pepper-mcp-verify --ip <PEPPER_IP>` walks a checklist (connect,

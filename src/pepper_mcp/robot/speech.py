@@ -2,8 +2,8 @@
 
 ``say`` returns immediately; a single worker drains the queue so that sentences the LLM
 streams out play back-to-back with gestures. Publishes ``tts.started`` /
-``tts.finished`` events – the listener uses them to mute the microphone while Pepper is
-talking (echo gating).
+``tts.finished`` events – the Gemini bridge uses them to mute the microphone while Pepper
+is talking (echo gating).
 """
 
 from __future__ import annotations

@@ -33,7 +33,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from pepper_mcp.cli import build_parser, configure_logging, stop_on_signals
-from pepper_mcp.config import Settings
+from pepper_mcp.config import Settings, removed_env_vars
 
 log = logging.getLogger("pepper_mcp.gemini_live")
 
@@ -49,7 +49,7 @@ TOOL_TIMEOUT_S = 20.0  # a tool call pauses the model; never let one hang the co
 # call blocks the model until it returns, so nothing that waits for the world may be exposed.
 EXCLUDED_TOOLS = frozenset({
     "say", "stop_speaking", "speech_status", "set_voice", "list_languages",
-    "listen", "set_listening", "get_transcript", "recognize_keywords", "record_clip",
+    "recognize_keywords", "record_clip",
     "start_builtin_dialog", "stop_builtin_dialog",
     "wait_for_event", "wait_task", "camera_stream",
     # reads any file on the laptop: nothing a voice in the room should be able to trigger
@@ -212,7 +212,13 @@ class SpeechFilter:
         self.phrases = {p for p in (_norm(x) for x in (*PLACEHOLDERS, *narration)) if p}
         self.reset()
 
+    def interrupt(self) -> None:
+        """Barge-in: drop the turn, and ignore its trailing transcript until new audio comes."""
+        self.reset()
+        self._stale = True
+
     def reset(self) -> None:
+        self._stale = False
         self._held: list[bytes] = []
         self._since: float | None = None
         self._text = ""
@@ -225,6 +231,7 @@ class SpeechFilter:
 
     def audio(self, chunk: bytes) -> list[bytes]:
         """A voice chunk arrived: the chunks to play now."""
+        self._stale = False
         if self._state == "speak":
             return [chunk]
         if self._state == "drop":
@@ -237,6 +244,8 @@ class SpeechFilter:
 
     def text(self, fragment: str) -> list[bytes]:
         """An output transcript fragment arrived: held chunks to play now."""
+        if self._stale:
+            return []
         self._text += fragment
         if self._state == "speak":
             return []
@@ -334,24 +343,17 @@ class EchoGate:
 # ---------------------------------------------------------------- CLI
 def _parse(argv: list[str] | None) -> tuple[Settings, argparse.Namespace]:
     parser = build_parser()
-    parser.prog = "pepper-mcp-gemini"
     parser.add_argument("--model", default=MODEL, help=f"Gemini Live model (default {MODEL})")
     parser.add_argument("--voice", default="Kore", help="prebuilt Gemini voice (Kore, Puck, Charon, ...)")
     parser.add_argument("--persona", default="Pepper")
     parser.add_argument("--no-video", action="store_true", help="don't stream the head camera to Gemini")
     parser.add_argument("--no-transcripts", action="store_true", help="don't print what was said")
     args = parser.parse_args(argv)
-    if args.audio_rate not in (None, MIC_RATE):
-        parser.error(f"--audio-rate must be {MIC_RATE} here: it is Gemini Live's input rate")
-    # The bridge forwards only 16 kHz buffers; a 48 kHz PEPPER_AUDIO_RATE meant for the plain
-    # server would otherwise leave Pepper silently deaf.
-    args.audio_rate = MIC_RATE
     settings = Settings()
     settings.apply_overrides({k: v for k, v in vars(args).items()})
-    # Gemini is the ears: the server's own STT would only burn GPU and publish duplicate speech.
-    if args.stt_backend is None:
-        settings.stt_backend = "none"
-    settings.transport = "stdio"
+    # The bridge forwards only 16 kHz buffers (Gemini Live's input rate); a 48 kHz
+    # PEPPER_AUDIO_RATE would otherwise leave Pepper silently deaf.
+    settings.audio_rate = MIC_RATE
     settings.validate()
     return settings, args
 
@@ -373,6 +375,7 @@ class GeminiPepper:
         self._heard = ""
         self._said = ""
         self.speaker: Any = None
+        self.rt: Any = None
         self.speech = SpeechFilter()
         self.background_tools: frozenset[str] = frozenset()  # NON_BLOCKING: results go back SILENT
         self._tool_tasks: set[asyncio.Task] = set()
@@ -421,7 +424,8 @@ class GeminiPepper:
             declarations = tool_declarations(tools, non_blocking=supports_async_tools(self.args.model))
             self.background_tools = frozenset(d["name"] for d in declarations if d.get("behavior"))
             self.speech = SpeechFilter([*(d["name"] for d in declarations), *rt.gestures.names()])
-            rt.voice_agent = f"Gemini Live ({self.args.model})"  # the dashboard explains why STT is off
+            self.rt = rt
+            rt.voice_agent = f"Gemini Live ({self.args.model})"  # shown on the dashboard
             if rt.mic is None:
                 raise SystemExit("Pepper's microphone is not available; Gemini Live needs it")
             if rt.audio_out is None:
@@ -579,7 +583,7 @@ class GeminiPepper:
                     continue
                 if sc.interrupted:
                     self._drop_voice()
-                    self.speech.reset()
+                    self.speech.interrupt()
                 # Transcripts arrive in fragments: collect them and print one line per turn.
                 if sc.input_transcription and sc.input_transcription.text:
                     self._heard += sc.input_transcription.text
@@ -634,11 +638,12 @@ class GeminiPepper:
                     response = tool_response(result)
             except Exception as exc:  # report to Gemini, keep the session alive
                 response = {"error": f"{type(exc).__name__}: {exc}"}
+            finally:  # also on cancellation (reconnect): never leave the mic muted for a dead call
+                if fc.name in SOUND_TOOLS:
+                    self.gate.finish(pending)
             task_id = response.get("task_id")
-            if fc.name in SOUND_TOOLS:
-                if task_id:
-                    self.gate.start(f"task:{task_id}")
-                self.gate.finish(pending)
+            if fc.name in SOUND_TOOLS and task_id:
+                self.gate.start(f"task:{task_id}")
             self._show("tool", f"{fc.name}({json.dumps(args)}) -> {json.dumps(response, default=str)[:160]} "
                                f"[{(time.monotonic() - started) * 1000:.0f} ms]")
             scheduling = None
@@ -664,6 +669,9 @@ class GeminiPepper:
         return {"camera": camera, "image": "sent to your video input", "width": getattr(frame, "width", None)}
 
     def _show(self, kind: str, text: str) -> None:
+        if kind in ("heard", "said") and self.rt is not None:  # the dashboard's conversation panel
+            self.rt.transcript.append({"role": "user" if kind == "heard" else "robot",
+                                       "text": text, "at": time.time()})
         # This CLI owns stdout: the MCP transport is in-memory, not stdio.
         if self.args.no_transcripts and kind != "tool":
             return
@@ -672,8 +680,11 @@ class GeminiPepper:
 
 def main(argv: list[str] | None = None) -> None:
     settings, args = _parse(argv)
-    configure_logging(settings.log_level, "stdio")
+    configure_logging(settings.log_level)
     stop_on_signals()
+    if stale := removed_env_vars():
+        log.warning("ignoring %s: speech-to-text and the standalone MCP server were removed "
+                    "(Gemini Live is the ears)", ", ".join(stale))
     key = load_api_key()
     if not key:
         raise SystemExit(f"{KEY_VAR} is not set: put `{KEY_VAR}=<key>` in .env or export it")

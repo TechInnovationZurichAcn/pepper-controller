@@ -1,4 +1,6 @@
-"""Hearing: laptop STT pipeline + on-robot keyword recognition + QiChat."""
+"""Hearing: microphone status and clips, on-robot keyword recognition and QiChat.
+
+Free speech is heard by the voice agent (Gemini Live), which gets the mic stream directly."""
 
 from __future__ import annotations
 
@@ -14,47 +16,14 @@ from pepper_mcp.tools._common import ACTION, READ_ONLY, require, text_block, too
 
 def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
     @tool(mcp, READ_ONLY)
-    async def listen(timeout_s: Annotated[float, Field(gt=0, le=300)] = 20.0) -> dict[str, Any]:
-        """Wait for the next thing a person says and return its transcript (sugar for
-        wait_for_event(["speech.final"])). Returns {timeout: true} if nobody spoke."""
-        if rt.listener is None or not rt.listener.enabled:
-            return {"error": "hearing is disabled (no microphone/STT); use recognize_keywords or enable with set_listening"}
-        events = await rt.bus.wait(["speech.final"], timeout_s)
-        if not events:
-            return {"timeout": True, "waited_s": timeout_s}
-        return events[-1].data | {"seq": events[-1].seq}
-
-    @tool(mcp, ACTION)
-    def set_listening(enabled: bool, barge_in: bool | None = None,
-                      end_silence_ms: Annotated[int | None, Field(ge=150, le=2000)] = None) -> dict[str, Any]:
-        """Turn free-speech hearing on/off; barge_in lets a person interrupt Pepper mid-sentence;
-        end_silence_ms is how long a pause ends an utterance (lower = snappier, more cut-offs)."""
-        listener = require(rt.listener, "listener (microphone + STT)")
-        if barge_in is not None:
-            listener.barge_in = barge_in
-        if end_silence_ms is not None:
-            listener.end_silence_ms = end_silence_ms
-        listener.set_enabled(enabled)
-        return listener.status()
-
-    @tool(mcp, READ_ONLY)
-    def get_transcript(limit: Annotated[int, Field(ge=1, le=200)] = 20) -> dict[str, Any]:
-        """Recent utterances heard from people, newest last."""
-        heard = list(rt.listener.transcript)[-limit:] if rt.listener else []
-        return {"count": len(heard), "utterances": heard, "hearing_enabled": bool(rt.listener and rt.listener.enabled)}
-
-    @tool(mcp, READ_ONLY)
     def mic_level() -> dict[str, Any]:
-        """Microphone stream status: RMS level, callback rate, whether speech is detected now."""
-        mic = require(rt.mic, "microphone")
-        out = mic.status()
-        if rt.listener:
-            out["listener"] = rt.listener.status()
-        return out
+        """Microphone stream status: which head mic is used, per-mic energies, RMS level and
+        callback rate."""
+        return require(rt.mic, "microphone").status()
 
     @tool(mcp, READ_ONLY)
     def record_clip(seconds: Annotated[float, Field(gt=0, le=10)] = 3.0) -> types.CallToolResult:
-        """Record a short clip from Pepper's front microphone and return it as WAV audio
+        """Record a short clip from Pepper's head microphone and return it as WAV audio
         (16 kHz mono) so you can listen to it yourself."""
         mic = require(rt.mic, "microphone")
         samples = mic.record(seconds)
@@ -69,7 +38,7 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
                            timeout_s: Annotated[float, Field(gt=0, le=60)] = 8.0,
                            word_spotting: bool = True) -> dict[str, Any]:
         """Offline on-robot recognition of a small fixed vocabulary (yes/no, menu choices, names).
-        Faster and works without STT; blocks until a word is heard or the timeout passes."""
+        Runs on the robot; blocks until a word is heard or the timeout passes."""
         return require(rt.asr, "on-robot speech recognition").recognize(words, timeout_s, word_spotting)
 
     @tool(mcp, ACTION)

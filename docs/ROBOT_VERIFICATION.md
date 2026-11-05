@@ -15,7 +15,7 @@ uv pip install -e ".[all,dev]"
 ```
 
 The robot must be powered on, reachable on port 9559 and allowed to connect back to the
-laptop (firewall rule). README steps 7–11 cover getting there and finding `<PEPPER_IP>`.
+laptop (firewall rule). README steps 6–10 cover getting there and finding `<PEPPER_IP>`.
 
 ## 1. Automated checklist
 
@@ -32,7 +32,7 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 | tts | `ALTextToSpeech.say` async future completes, `ALTextToSpeech/TextDone` fires | speech queue falls back to blocking `say` in its own thread |
 | animated_speech | `ALAnimatedSpeech.say` with `bodyLanguageMode=contextual` | `say(animated=False)` |
 | memory_subscriber | `ALMemory.subscriber(...).signal.connect` works | polling watcher (automatic) |
-| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check `--qi-listen-url`, firewall; try `--audio-rate 48000`. One mic far below the others = dead mic, `--mic auto` skips it |
+| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check `--qi-listen-url` and the firewall (README step 10). One mic far below the others = dead mic, `--mic auto` skips it |
 | camera | QVGA RGB frame from top camera in < 100 ms, depth frame from camera 2 | lower fps / resolution |
 | waving | `ALWavingDetection` subscribe + `PeoplePerception/Person/<id>/IsWaving` key | `hand_raise_vision` (MediaPipe) or LLM-vision only |
 | animations | `ALBehaviorManager.getInstalledBehaviors()` contains `animations/Stand/...` | curated list in `animation.py` |
@@ -44,12 +44,14 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 ## 2. Manual interaction test
 
 ```bash
-pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
 ```
 
-1. Open `http://localhost:8765/` – you should see the live camera and an event log.
-2. Talk to the robot from ~1 m: a `speech.final` event with your words should appear
-   within ~1 s of you finishing the sentence.
+1. Open `http://localhost:8765/` – you should see the live camera, the event log and the
+   conversation panel.
+2. Talk to the robot from ~1 m, after it has finished any sound: your words should appear as
+   `[heard]` in the terminal and in the conversation panel, and Gemini should answer through the
+   speakers.
 3. Raise a hand and hold it up facing the robot: `person.waving` fires, the
    `high_five` reflex raises Pepper's right arm, touching the back of its hand ends the
    gesture with a celebration (`reflex.completed`).
@@ -59,7 +61,7 @@ pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
    still on (`get_safety` → `collision_protection_arms`). Then put the arms in odd poses
    (`arm_pose` left `hug`, right `high_five`) and play `arms_down`: both arms must end fully
    down along the sides, forearms not twisted inward.
-5. Stop the server and run `pepper-mcp-gemini --ip <PEPPER_IP>` (README step 15).
+5. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
 
 ## 3. Known firmware quirks handled in code
 

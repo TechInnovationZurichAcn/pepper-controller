@@ -5,12 +5,13 @@ build-backend = "hatchling.build"
 [project]
 name = "pepper-mcp"
 version = "0.1.0"
-description = "Model Context Protocol server that lets a modern LLM see, hear, talk through and move a SoftBank Pepper robot (NAOqi 2.5) in real time."
+description = "Gemini Live drives a SoftBank Pepper robot (NAOqi 2.5) in real time: Pepper's own mic, camera and speakers, its body through MCP tools."
 readme = "README.md"
 license = { text = "MIT" }
 # libqi-python (`qi`) ships wheels for CPython 3.7-3.12 only; 3.13 cannot talk to the robot.
 requires-python = ">=3.10,<3.13"
 dependencies = [
+    "google-genai>=2.33",
     "mcp>=2.0",
     "numpy>=1.26",
     "pillow>=10.0",
@@ -19,17 +20,12 @@ dependencies = [
 [project.optional-dependencies]
 # Talking to a real robot (needs CPython <= 3.12, Linux x86_64 or macOS arm64 wheels exist).
 robot = ["qi>=3.1.5"]
-# Local speech-to-text + voice activity detection (offline, no API key).
-speech = ["faster-whisper>=1.0", "webrtcvad-wheels>=2.0.14"]
-# Real-time voice + video agent on Pepper's own mic, camera and speakers with Gemini Live.
-gemini = ["google-genai>=2.33"]
 # Laptop-side pose / hand detection on camera frames (experimental).
 vision = ["mediapipe>=0.10", "opencv-python-headless>=4.9"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "anyio>=4"]
-all = ["pepper-mcp[robot,speech,gemini]"]
+all = ["pepper-mcp[robot]"]
 
 [project.scripts]
-pepper-mcp = "pepper_mcp.cli:main"
 pepper-mcp-verify = "pepper_mcp.verify:main"
 pepper-mcp-gemini = "pepper_mcp.gemini_live:main"
 

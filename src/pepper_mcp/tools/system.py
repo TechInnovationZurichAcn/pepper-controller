@@ -12,13 +12,13 @@ from pepper_mcp.tools._common import ACTION, READ_ONLY, require, task_result, to
 def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
     @tool(mcp, READ_ONLY)
     def robot_status() -> dict[str, Any]:
-        """Overall robot state: connection, battery, posture, autonomous life, speaking/listening
-        flags, people around, active reflexes, running tasks. Call once at the start."""
+        """Overall robot state: connection, battery, posture, autonomous life, speaking
+        flag, people around, active reflexes, running tasks. Call once at the start."""
         return rt.status()
 
     @tool(mcp, READ_ONLY)
     def robot_capabilities() -> dict[str, Any]:
-        """What this robot/server can do: NAOqi services present, camera/microphone/STT state,
+        """What this robot/server can do: NAOqi services present, camera/microphone state, voice agent,
         gestures, reflexes, settings."""
         return rt.capabilities()
 

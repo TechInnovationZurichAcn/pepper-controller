@@ -47,7 +47,7 @@ def main(argv: list[str] | None = None) -> None:
     missing = [n for n in needed if n not in services]
     print(f"       missing services: {missing or 'none'}")
 
-    settings = Settings(ip=args.ip, port=args.port, audio_enabled=True, camera_enabled=True, listening=False,
+    settings = Settings(ip=args.ip, port=args.port, audio_enabled=True, camera_enabled=True,
                         reflexes_enabled=False, preview_port=0, autonomous_life="keep", wake_up=False)
     from pepper_mcp.runtime import Runtime
 

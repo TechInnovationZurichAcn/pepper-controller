@@ -1,23 +1,23 @@
 # Pepper MCP
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that gives a modern LLM a
-body: **SoftBank Pepper** (NAOqi 2.5) seen, heard, spoken through and moved in real time.
+**Gemini Live drives a SoftBank Pepper** (NAOqi 2.5) in real time: it hears and sees through
+Pepper's own head microphone and camera, talks through its speakers, and moves the body through
+an MCP tool server that runs inside the same process.
 
-* **Every robot feature as a tool** – speech with gestures, free-speech hearing, camera
-  snapshots, people/face/touch/sound perception, base and joint motion, animations and
-  custom gestures, LEDs, tablet, following, navigation and maps, behaviours. 106 tools,
-  10 resources and 2 prompts, listed in [`docs/MCP_ENDPOINTS.md`](docs/MCP_ENDPOINTS.md).
-* **Real-time by design** – the robot pushes audio and ALMemory events to the laptop, the
-  server turns them into events, and the LLM blocks on `wait_for_event` instead of polling.
-  Speech is queued sentence by sentence so Pepper starts talking while the LLM is still
-  writing. Design notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-* **Reflexes** – high five when somebody raises a hand, a wave when someone shows up,
-  eye colours and head turns that follow the conversation, a nod when touched: sub-second
-  reactions that run on the server and report back to the LLM as events. All toggleable.
+* **Every robot feature as a tool** – speech with gestures, camera snapshots,
+  people/face/touch/sound perception, base and joint motion, animations and custom gestures,
+  LEDs, tablet, tic-tac-toe, following, navigation and maps, behaviours. 107 tools and
+  10 resources (no prompts), listed in [`docs/MCP_ENDPOINTS.md`](docs/MCP_ENDPOINTS.md);
+  Gemini is offered 94 of the tools.
+* **Real-time by design** – the robot pushes audio and ALMemory events to the laptop. The
+  microphone goes straight to Gemini Live and the voice comes back to the speakers; robot
+  events reach it as short notes. Design notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+* **Reflexes** – high five when somebody raises a hand, a wave when someone shows up, a nod
+  when touched: sub-second reactions that run on the server without the LLM. All toggleable.
 * **Works without a robot** – `--fake` runs the whole stack against an in-memory NAOqi so
-  you can wire up your LLM client first.
+  you can check the install first.
 
-This branch contains only the MCP server. The keyboard teleop lives on `main`.
+This branch contains only the server and its voice agent. The keyboard teleop lives on `main`.
 
 ---
 
@@ -28,7 +28,7 @@ cd pepper-controller && source .venv/bin/activate     # the cloned repo (step 3)
 # power Pepper on, wait for it to stand up, press the chest button once → it says its IP
 ping -c 2 <PEPPER_IP> && nc -zv <PEPPER_IP> 9559
 pepper-mcp-verify --ip <PEPPER_IP> --no-move          # optional sanity check
-pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # step 15
+pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # step 12
 ```
 
 New laptop? Do **Part 1** once. New robot or new network? Do **Part 2**.
@@ -38,17 +38,17 @@ New laptop? Do **Part 1** once. New robot or new network? Do **Part 2**.
 ## Part 1 – Install on the laptop (Arch or Ubuntu, no robot needed)
 
 Tested on Arch Linux and Ubuntu 22.04 / 24.04 (desktop). Other distributions work if you
-translate the package names. `<PEPPER_IP>` stands for the robot's address (step 9).
+translate the package names. `<PEPPER_IP>` stands for the robot's address (step 8).
 
 ### 0. What you need
 
 | Item | Notes |
 |---|---|
 | **x86_64** Linux laptop | `qi` (libqi-python, the NAOqi client) only ships Linux wheels for x86_64; ARM boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot |
-| Internet on the laptop | the LLM (Gemini Live) runs in the cloud; first start also downloads the speech model (~500 MB) |
-| A Gemini API key | free from [Google AI Studio](https://aistudio.google.com/apikey); only needed for `pepper-mcp-gemini` (step 4) |
+| Internet on the laptop | the LLM (Gemini Live) runs in the cloud |
+| A Gemini API key | free from [Google AI Studio](https://aistudio.google.com/apikey); needed by `pepper-mcp-gemini`, also with `--fake` (step 4) |
 | Pepper with NAOqi 2.5.x | charged (plug the charger into the back of the base; unplug it before driving) |
-| A network Pepper and the laptop share | a router you control with **client/AP isolation off**, or an Ethernet cable straight from the laptop to Pepper (step 8, option C) |
+| A network Pepper and the laptop share | a router you control with **client/AP isolation off**, or an Ethernet cable straight from the laptop to Pepper (step 7, option C) |
 | ~2 m × 2 m of clear floor | Pepper moves its base during the checks and when the LLM decides to walk |
 
 Python itself is **not** a requirement: `qi` needs CPython 3.10 – 3.12, which is older than
@@ -71,7 +71,7 @@ sudo apt install -y git curl openssh-client netcat-openbsd nmap avahi-utils
 ```
 
 What they are for: `git` to clone, `openssh` (`ssh`/`scp`) to copy sounds and tablet assets
-onto the robot, `nc` / `nmap` / `avahi` to find and test the robot on the network (steps 9–10).
+onto the robot, `nc` / `nmap` / `avahi` to find and test the robot on the network (steps 8–9).
 `uv` is installed in step 2 on Ubuntu.
 
 The network commands in Part 2 use NetworkManager (`nmcli`), the default on Ubuntu Desktop
@@ -93,17 +93,15 @@ git clone -b mcp-server https://github.com/Maelwalser/pepper-controller.git
 cd pepper-controller
 uv venv --python 3.12 .venv          # downloads CPython 3.12 if the system lacks it
 source .venv/bin/activate
-uv pip install -e ".[all,dev]"       # qi + faster-whisper + webrtcvad + google-genai + pytest/ruff
+uv pip install -e ".[all,dev]"       # qi + google-genai + pytest/ruff
 ```
 
-Extras: `robot` (`qi`, needed for real hardware), `speech` (local STT + VAD), `gemini`
-(Gemini Live agent), `all` (= those three), `vision` (MediaPipe hand-raise detector,
-optional), `dev` (tests, ruff).
+Extras: `robot` (`qi`, needed for real hardware), `all` (= `robot`), `vision` (MediaPipe
+hand-raise detector, optional), `dev` (tests, ruff). `google-genai` is a core dependency.
 
 **Run every command from the repo root with the venv active** (`source .venv/bin/activate`
-in each new terminal, or call `.venv/bin/pepper-mcp` directly). The `.env` key file, the
-downloaded speech model (`.models/`) and saved maps (`pepper_maps.json`) are all looked up
-relative to the current directory.
+in each new terminal, or call `.venv/bin/pepper-mcp-gemini` directly). The `.env` key file and
+saved maps (`pepper_maps.json`) are looked up relative to the current directory.
 
 ### 4. Add the Gemini API key
 
@@ -118,36 +116,13 @@ echo 'GEMINI_LIVE_KEY=<your key>' > .env && chmod 600 .env    # .env is git-igno
 ### 5. Check the install without the robot
 
 ```bash
-pytest -q                                                            # whole suite, fake robot
-pepper-mcp --fake --stt none --preview-port 8765 --transport streamable-http
+pytest -q                                                 # whole suite, fake robot
+pepper-mcp-gemini --fake --preview-port 8765              # fake robot, real Gemini session
 ```
 
 Open <http://localhost:8765/> (dashboard with event log and fake camera), `Ctrl-C` to stop.
-This proves the server and the MCP plumbing work before hardware enters the picture.
-
-Optional: download the speech model now, on a good connection (it is otherwise fetched on the
-first start with hearing on and lands in `.models/`):
-
-```bash
-python -c "from faster_whisper import WhisperModel; WhisperModel('small', device='cpu', download_root='.models')"
-```
-
-### 6. GPU speech recognition (optional, NVIDIA only)
-
-Only matters for the server's own speech-to-text (`pepper-mcp`, or `pepper-mcp-gemini --stt …`);
-Gemini Live does not need it. faster-whisper's ctranslate2 needs the CUDA **12**
-cuBLAS/cuDNN libraries. Installing them as wheels into the venv works on any distro and does
-not clash with a newer system CUDA (Arch) or a missing one (Ubuntu); only the NVIDIA driver
-must be installed system-wide (`nvidia-smi` must work).
-
-```bash
-uv pip install nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
-SP="$PWD/.venv/lib/python3.12/site-packages"
-export LD_LIBRARY_PATH="$SP/nvidia/cublas/lib:$SP/nvidia/cudnn/lib"   # in every new shell
-```
-
-Then add `--stt-device cuda`. Without a GPU use `--stt-device cpu` (and `--stt-model base`
-if `small` is too slow).
+`--fake` still needs the key from step 4 and internet: the Gemini session starts even with the
+fake robot. A failure here is an install or key problem, not a robot problem.
 
 ---
 
@@ -164,7 +139,7 @@ if `small` is too slow).
   **refuses to move**.
 * **Ethernet port** – under the cover on the back of the head.
 
-### 7. Power on
+### 6. Power on
 
 1. Close the charging hatch and unplug the charger.
 2. Press the chest button once (short). The eyes and shoulders light up and the tablet
@@ -175,7 +150,7 @@ if `small` is too slow).
 If Pepper stays slumped forward after boot it is in rest mode – that is fine, the server
 wakes it on start.
 
-### 8. Put Pepper and the laptop on the same network
+### 7. Put Pepper and the laptop on the same network
 
 The robot has to open connections **to** the laptop (microphone audio, ALMemory signals),
 not only the other way round. Networks with client isolation (guest Wi-Fi, campus/eduroam,
@@ -279,8 +254,8 @@ UseDomains=no
 then `sudo networkctl reload && sudo networkctl reconfigure <ETH_DEV>`.
 
 *B4. First time only: put Pepper on the router's Wi-Fi.* Pepper does not know the new SSID
-yet, so plug its head Ethernet port (step 6) into another LAN port of the router, find its
-wired IP (step 9: the router's client list, or `nmap -p 9559 --open <router subnet>`), then
+yet, so plug its head Ethernet port (see Robot parts above) into another LAN port of the router, find its
+wired IP (step 8: the router's client list, or `nmap -p 9559 --open <router subnet>`), then
 join the Wi-Fi with connman's own client over SSH. **WPS push-button** avoids typing the key
 at all (FRITZ!Box: the *Connect/WPS* button, ~1 s, until the WLAN LED blinks; you then have
 ~2 minutes):
@@ -317,10 +292,10 @@ between sessions, so ask each time, then:
 
 ```bash
 export PEPPER_IP=<the IP Pepper said>
-pepper-mcp-gemini                # or pepper-mcp; both read PEPPER_IP when --ip is omitted
+pepper-mcp-gemini               # reads PEPPER_IP when --ip is omitted
 ```
 
-The firewall rule from step 11 only needs adding once: with `ufw`,
+The firewall rule from step 10 only needs adding once: with `ufw`,
 `sudo ufw allow from 192.168.178.0/24` covers the whole FRITZ!Box subnet whatever IP Pepper
 gets. Unplug the cable when done.
 
@@ -334,15 +309,15 @@ nmcli con up pepper-direct      # laptop becomes 10.42.0.1 and runs DHCP for Pep
 ```
 
 `ipv4.method shared` needs `dnsmasq` (Arch: `sudo pacman -S dnsmasq`; Ubuntu Desktop has it).
-Pepper gets a `10.42.0.x` address; step 9 tells you which.
+Pepper gets a `10.42.0.x` address; step 8 tells you which.
 
-### 9. Get Pepper's IP address
+### 8. Get Pepper's IP address
 
 Use the first method that works:
 
 1. **Ask Pepper.** With Pepper booted, press the chest button once (short). It says
    "… my internet address is 192.168.1.5" (or that it is not connected – go back to
-   step 8). Write the address down.
+   step 7). Write the address down.
 2. **Router.** Look for a client called `pepper` / the robot's name in the router's DHCP
    client list.
 3. **Zeroconf.** NAOqi advertises itself over mDNS (needs the avahi daemon running:
@@ -362,7 +337,7 @@ Use the first method that works:
 Optional, so you can type it once per shell: `export PEPPER_IP=192.168.1.5` – every
 command below also reads `PEPPER_IP` when `--ip` is omitted.
 
-### 10. Check the laptop can reach the robot
+### 9. Check the laptop can reach the robot
 
 ```bash
 ip -br addr                     # your laptop's address on the robot's subnet
@@ -373,7 +348,7 @@ nc -zv <PEPPER_IP> 9559         # NAOqi port
 * `ping` fails → not on the same network, or wrong IP (ask Pepper again).
 * `ping` works but port 9559 does not → client isolation is still on in the router.
 
-### 11. Open the laptop firewall for the robot
+### 10. Open the laptop firewall for the robot
 
 The robot calls back into the laptop on a random TCP port (audio stream, signals). A
 firewall that blocks inbound connections makes hearing **fail silently**. Find out which
@@ -393,10 +368,10 @@ sudo firewall-cmd --state       # firewalld; "not running" / command not found =
 Using raw `nftables`/`iptables`? Allow inbound TCP from the robot's IP, or pin the callback
 port with `PEPPER_LISTEN_URL=tcp://0.0.0.0:9560` and open just that.
 
-To open the dashboard (step 14) from another device (phone, Pepper's tablet) also open TCP
+To open the dashboard (step 13) from another device (phone, Pepper's tablet) also open TCP
 8765 (`sudo ufw allow 8765/tcp` or `sudo firewall-cmd --add-port=8765/tcp`).
 
-### 12. Hardware checklist
+### 11. Hardware checklist
 
 Clear ~1 m in front of Pepper (the last check drives the base forward for 0.3 s), then:
 
@@ -405,8 +380,8 @@ pepper-mcp-verify --ip <PEPPER_IP>        # --no-move skips the drive, --quiet s
 ```
 
 You want `[OK ]` on at least `connect`, `tts`, `audio_callback` (≈ 6 callbacks/s), `camera`
-and `move`. A `FAIL` on `audio_callback` almost always means the firewall (step 11) or client
-isolation (step 8). What every check proves and its fallback:
+and `move`. A `FAIL` on `audio_callback` almost always means the firewall (step 10) or client
+isolation (step 7). What every check proves and its fallback:
 [`docs/ROBOT_VERIFICATION.md`](docs/ROBOT_VERIFICATION.md).
 
 Playing sound files and showing pages on the tablet copies files onto the robot over SSH
@@ -414,140 +389,120 @@ as user `nao`, password `pepper` (the factory default). If your robot's password
 changed, export `PEPPER_SSH_PASSWORD=<password>` (and `PEPPER_SSH_USER` if needed) before
 starting the server.
 
-### 13. Run the server once by hand
-
-```bash
-pepper-mcp --ip <PEPPER_IP> --preview-port 8765 --transport streamable-http
-```
-
-On start the server wakes Pepper, turns autonomous life off, applies the liveliness preset
-and lowers the base safety distances to 0.15 m / 0.05 m.
-
-### 14. Watch and test it
-
-1. Open <http://localhost:8765/>: the control dashboard. Header: connection, battery,
-   posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
-   Below it: live camera (top/bottom/depth), head and base nudge pads, a say box and volume,
-   switches for every reflex (wave/greet, high five, attention, touch, battery), hearing,
-   liveliness and autonomous abilities, tracking/follow and perception extractors, one button
-   per gesture, mood lights, the conversation transcript, sensors and a filterable event log.
-   Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
-   `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
-2. Stand ~1 m in front and say a sentence. A `speech.final` event with your words should
-   appear about a second after you stop talking (the first one is slower while whisper
-   loads, and the very first start downloads the model).
-3. Raise a hand facing the robot: `person.waving`, then the high-five reflex. Touch the
-   back of its raised hand to finish it.
-4. Touch its head: a `touch.*` event and a nod.
-
-Pepper does **not** answer yet – the server only produces events. The LLM comes next.
-`Ctrl-C` stops it; on shutdown the server stops the base and restores motion defaults and
-autonomous life. Only one process may own the robot, so stop this one before step 15.
-
-### 15. Talk to Pepper through Gemini Live
-
-A speech-to-speech model hears
-Pepper's own head microphone (front, or the next working one), watches its head camera (1 fps), answers through Pepper's
-loudspeakers and drives the body through the same MCP tools (91 of them; speech, hearing and
-blocking tools such as `say` or `wait_for_event` are left out because Gemini is the voice).
-Actions run in the background while it keeps talking and report back silently, and turns that
-would only say "no speech" or a gesture name are kept off the speakers. Robot events (touch, people appearing, `motion.blocked`,
-failed tasks, high-five results) are passed to it as short notes; it reacts with its body and
-speaks only when a person would, without narrating what it sensed or which tool it used. Other
-reflexes (attention, greet, touch) already moved the body and are not reported. Nothing on the laptop is used except the network.
-With `--preview-port`, the dashboard's Hearing card says the mic goes straight to Gemini Live:
-its Listening and Barge-in switches belong to the server's own speech-to-text, which is off here.
+### 12. Start Gemini Live
 
 ```bash
 pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # key from step 4
 ```
 
-It owns the robot (stop any other `pepper-mcp` first) and prints `[heard]`, `[said]` and `[tool]` lines. Extra flags on top of every
-`pepper-mcp` flag: `--model` (default `gemini-3.8-live`), `--voice` (`Kore`, `Puck`,
-`Charon`, …), `--persona`, `--no-video`, `--no-transcripts`. The server's own speech-to-text
-is off unless you pass `--stt`. Pepper's mic sits next to its speakers and has no echo
-cancellation, so it is muted while Pepper makes any sound (Gemini's voice, NAOqi speech from
-reflexes, gestures with sounds): talk after Pepper finishes; interrupting mid-sentence is not
-possible. The free API tier has no Google Search quota, so search is not enabled.
+This is the one way to run the server. It owns the robot (only one process may: stop any other
+`pepper-mcp-gemini` first) and prints `[heard]`, `[said]` and `[tool]` lines. On start it wakes
+Pepper, turns autonomous life off, applies the liveliness preset and lowers the base safety
+distances to 0.15 m / 0.05 m.
 
-### 16. Other MCP clients over HTTP
+A speech-to-speech model hears Pepper's own head microphone (front, or the next working one),
+watches its head camera (1 fps), answers through Pepper's loudspeakers and drives the body
+through the MCP tools in the same process: 94 of the 107 (`say`, the speech and hearing tools,
+`recognize_keywords`, `wait_for_event` and the other blocking ones are left out, because Gemini
+is the voice and the ears). Actions run in the background while it keeps talking and report back
+silently, and turns that would only say "no speech" or a gesture name are kept off the speakers.
+Robot events (touch, people appearing, `motion.blocked`, failed tasks, high-five results) are
+passed to it as short notes; it reacts with its body and speaks only when a person would, without
+narrating what it sensed or which tool it used. Other reflexes (attention, greet, touch) already
+moved the body and are not reported. Nothing on the laptop is used except the network.
 
-The standalone server still exposes every tool, resource and prompt to any MCP client:
+Gemini-only flags, on top of the [Configuration](#configuration) table: `--model` (default
+`gemini-3.8-live`), `--voice` (`Kore`, `Puck`, `Charon`, …), `--persona`, `--no-video`,
+`--no-transcripts`. Pepper's mic sits next to its speakers and has no echo cancellation, so it is
+muted while Pepper makes any sound (Gemini's voice, NAOqi speech from reflexes, gestures with
+sounds) plus a short tail: talk after Pepper finishes; interrupting mid-sentence is not possible.
+The free API tier has no Google Search quota, so search is not enabled.
 
-```bash
-pepper-mcp --ip <PEPPER_IP> --transport streamable-http --host 0.0.0.0 --http-port 8808
-```
+### 13. Watch and test it
 
-### 17. Shut down
+1. Open <http://localhost:8765/>: the control dashboard. Header: connection, battery,
+   posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
+   Below it: live camera (top/bottom/depth), head and base nudge pads, a say box and volume,
+   switches for every reflex (wave/greet, high five, attention, touch, battery), the Hearing card
+   (microphone and voice agent), liveliness and autonomous abilities, tracking/follow and
+   perception extractors, one button per gesture, mood lights, the conversation panel (what
+   Gemini heard and said), sensors and a filterable event log.
+   Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
+   `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
+2. Stand ~1 m in front, let Pepper finish any sound, and say a sentence. Your words show up as
+   `[heard]` in the terminal and in the conversation panel, and Gemini answers through the speakers.
+3. Raise a hand facing the robot: `person.waving`, then the high-five reflex. Touch the
+   back of its raised hand to finish it.
+4. Touch its head: a `touch.*` event and a nod.
 
-1. `Ctrl-C` the server or `pepper-mcp-gemini` (`kill`/SIGTERM does the same). The server stops
+`Ctrl-C` stops it; on shutdown the server stops the base and restores motion defaults and
+autonomous life.
+
+### 14. Shut down
+
+1. `Ctrl-C` `pepper-mcp-gemini` (`kill`/SIGTERM does the same). It stops
    the base, restores the NAOqi safety distances and autonomous life, and releases camera and
    microphone. Only `kill -9` skips this.
 2. Hold the chest button ~3 s until Pepper says goodbye and goes to rest; wait for the
    lights to go off before closing the charging hatch and plugging in the charger.
-3. Optional: remove the firewall rule from step 11, and `nmcli con down pepper-direct` if
+3. Optional: remove the firewall rule from step 10, and `nmcli con down pepper-direct` if
    you used option C.
 
-If the server was killed instead of stopped, the robot keeps the lowered safety distances
-until the next server start or a reboot.
+If `pepper-mcp-gemini` was killed instead of stopped, the robot keeps the lowered safety distances
+until the next start or a reboot.
 
 ---
 
 ## Configuration
 
 Every flag has a `PEPPER_*` environment variable; the flag wins. Full list:
-`pepper-mcp --help` and [`src/pepper_mcp/config.py`](src/pepper_mcp/config.py).
+`pepper-mcp-gemini --help` and [`src/pepper_mcp/config.py`](src/pepper_mcp/config.py).
 
 | Flag | Env | Default | Purpose |
 |---|---|---|---|
 | `--ip` / `--port` | `PEPPER_IP` / `PEPPER_PORT` | – / 9559 | robot address |
 | `--fake` | `PEPPER_FAKE` | off | in-memory robot, no hardware |
-| `--transport` | `PEPPER_MCP_TRANSPORT` | `stdio` | `stdio`, `streamable-http`, `sse` |
-| `--host` / `--http-port` | `PEPPER_MCP_HOST` / `PEPPER_MCP_PORT` | 127.0.0.1 / 8808 | HTTP transport bind |
 | `--preview-port` | `PEPPER_PREVIEW_PORT` | 0 (off) | control dashboard, MJPEG, WAV, SSE |
 | `--preview-token` | `PEPPER_PREVIEW_TOKEN` | empty | lets other devices use the dashboard controls (`/?token=…`); empty = laptop only |
-| `--language` | `PEPPER_LANGUAGE` | `English` | TTS language |
-| `--stt` | `PEPPER_STT` | `faster-whisper` | `faster-whisper`, `openai`, `none` |
-| `--stt-model` / `--stt-device` | `PEPPER_STT_MODEL` / `PEPPER_STT_DEVICE` | `small` / `auto` | whisper size, `cpu`/`cuda` |
-| `--stt-language` | `PEPPER_STT_LANGUAGE` | `en` | ISO code, empty = auto-detect |
-| – | `PEPPER_STT_URL` / `PEPPER_STT_API_KEY` | OpenAI endpoint / – | for `--stt openai` |
+| `--language` | `PEPPER_LANGUAGE` | `English` | default conversation and robot TTS language |
 | `--liveliness` | `PEPPER_LIVELINESS` | `calm` | `off`, `calm`, `lively` autonomous movement |
 | `--keep-autonomous-life` | `PEPPER_AUTONOMOUS_LIFE=keep` | disable | leave NAOqi autonomous life on |
 | `--safety-front` / `--safety-side` | `PEPPER_SAFETY_FRONT_M` / `PEPPER_SAFETY_SIDE_M` | 0.15 / 0.05 | base safety distances in m (NAOqi: 0.4 / 0.1, which blocks most indoor moves) |
-| `--barge-in` | `PEPPER_BARGE_IN` | off | people can interrupt Pepper |
 | `--reflexes-off a,b` / `--no-reflexes` | `PEPPER_REFLEXES_OFF` / `PEPPER_REFLEXES` | all on | disable reflexes |
 | `--no-audio` / `--no-camera` / `--no-perception` | `PEPPER_AUDIO` / `PEPPER_CAMERA` / `PEPPER_PERCEPTION` | on | switch subsystems off |
 | `--hand-raise-vision` | `PEPPER_HAND_RAISE_VISION` | off | laptop MediaPipe detector (`vision` extra) |
 | `--camera-fps` / `--camera-res` | `PEPPER_CAMERA_FPS` / `PEPPER_CAMERA_RES` | 10 / `qvga` | camera stream |
-| `--audio-rate` | `PEPPER_AUDIO_RATE` | 16000 | 16000 = one mic, 48000 = 4 channels; `pepper-mcp-gemini` always uses 16000 (Gemini Live's input rate) |
+| – | `PEPPER_AUDIO_RATE` | 16000 | ignored by `pepper-mcp-gemini`, which always uses 16000 (Gemini Live's input rate) |
 | `--mic` | `PEPPER_MIC` | `auto` | head mic to listen with: `auto` (front, or the first that isn't dead; measured for 0.6 s at start, so loud talking right next to one side can mislead it), `front`, `left`, `right`, `rear` |
 | – | `PEPPER_LISTEN_URL` | `tcp://0.0.0.0:0` | callback endpoint for the robot |
-| – | `PEPPER_VAD_END_SILENCE_MS` / `PEPPER_ECHO_TAIL_MS` | 450 / 350 | end-of-utterance silence, echo gate tail |
 | – | `PEPPER_SSH_USER` / `PEPPER_SSH_PASSWORD` | `nao` / `pepper` | robot login for copying sounds and tablet assets (`scp`); never logged |
 | – | `PEPPER_MAP_STORE` | `pepper_maps.json` | where saved maps and spots are kept (relative to the working directory) |
 | `--log-level` | `PEPPER_LOG_LEVEL` | `INFO` | logs go to stderr |
 
 `GEMINI_LIVE_KEY` (for `pepper-mcp-gemini`) is the only value read from `.env`.
+The variables of removed features (`PEPPER_STT*`, `PEPPER_VAD_*`, `PEPPER_BARGE_IN`,
+`PEPPER_LISTENING`, `PEPPER_ECHO_TAIL_MS`, `PEPPER_MCP_*`) are ignored, and
+`pepper-mcp-gemini` logs a warning if one is set, so delete them from old `.env` files.
 
 ## How the interaction loop works
 
 ```
-   person talks ──▶ mic (16 kHz) ──▶ VAD ──▶ STT ──▶ speech.final ──▶ LLM (wait_for_event)
+   person talks ──▶ head mic (16 kHz) ──▶ Gemini Live (cloud) ──▶ voice ──▶ Pepper's speakers
    hand raised  ──▶ ALWavingDetection ──▶ person.waving ──▶ high_five reflex (≈0.2 s) ──▶ reflex.completed
-   LLM ──▶ say("first sentence") ──▶ ALAnimatedSpeech (gestures) ──▶ tts.finished
-       ──▶ play_gesture / look_at_person / set_leds / camera_snapshot / move_to …
+   Gemini ──▶ function call (play_gesture, look_at_person, set_leds, camera_snapshot, move_to …)
+          ──▶ MCP tool (in-process) ──▶ robot;  robot events ──▶ short notes to Gemini
 ```
 
-The `pepper_live_agent` prompt tells the model how to run this loop; `list_event_types`
-documents every event.
+Gemini's instructions (persona, speaking rules, safety) are in
+[`src/pepper_mcp/gemini_live.py`](src/pepper_mcp/gemini_live.py). `list_event_types` and
+`pepper://events/types` document every event.
 
 ## Project layout
 
 ```
 src/pepper_mcp/
-  cli.py, config.py, server.py, runtime.py     entry point, settings, MCP server, wiring
+  cli.py, config.py, server.py, runtime.py     robot options, settings, MCP server, wiring
   robot/        NAOqi wrappers (motion, speech, camera, audio_in, perception, …) + fake.py
-  speech/       VAD, STT backends, utterance listener (echo gating, barge-in)
   reflexes/     attention, high_five, greet, touch_reaction, low_battery
   tools/        MCP tools, one module per domain (auto-registered)
   vision/       optional MediaPipe hand-raise detector
@@ -562,7 +517,7 @@ tests/          pytest suite against the fake robot
 
 Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new gesture →
 `robot/gestures.py` or the `define_gesture` tool at runtime; new reflex → subclass
-`reflexes.base.Reflex`; new STT → implement `speech.stt.SpeechToText`.
+`reflexes.base.Reflex`.
 
 ## Development
 
@@ -578,22 +533,20 @@ ruff check src tests
 |---|---|
 | `uv: command not found` | Ubuntu: step 2, then open a new terminal; Arch: `sudo pacman -S uv` |
 | `qi` wheel not found / `No solution found … qi` | venv on Python 3.13+: `rm -rf .venv && uv venv --python 3.12 .venv`; or the machine is not x86_64 (no `qi` wheels for ARM Linux) |
-| `pepper-mcp: command not found` | venv not active in this terminal: `source .venv/bin/activate` from the repo root |
+| `pepper-mcp-gemini: command not found` | venv not active in this terminal: `source .venv/bin/activate` from the repo root |
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
-| Pepper says it is not connected | it is not on any network: step 8 |
-| connects, but no `speech.final` | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 11; router isolation |
+| Pepper says it is not connected | it is not on any network: step 7 |
+| connects, but Gemini hears nothing | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 10; router isolation |
 | Pepper does not drive / `motion.blocked` | charging hatch open, charger plugged in, or something inside the safety distance; lower it with `--safety-front` or the `set_safety` tool when the space is clear |
 | motors limp, nothing moves | emergency stop at the back of the neck is pressed: release it, then `wake_up` |
 | head snaps back after moves | `set_liveliness off`, or start with `--liveliness off` |
-| speech recognition slow | `--stt-model base`, GPU (step 6) or `--stt openai`; the first utterance after start is always slower |
-| Pepper hears itself | echo gate is on while TTS plays; raise `PEPPER_ECHO_TAIL_MS` (e.g. 600) |
-| `stt_error: libcublas.so.12 … not found` | GPU libs missing or `LD_LIBRARY_PATH` not set in this shell: step 6, or `--stt-device cpu` |
 | `ssh/scp failed` in the log, no sound files or tablet page | `openssh` client missing (step 1), or the robot password is not `pepper`: set `PEPPER_SSH_PASSWORD` |
-| `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 8) |
+| `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 7) |
 | Internet drops when the router cable is plugged in | the wired profile took the default route: use `pepper-router` (option B, step B2), check `ip route get 1.1.1.1` says `dev wl…` |
 | Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step B4 |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot; or `--hand-raise-vision` |
-| dashboard: `the server's own speech-to-text is off` when switching listening on | expected under `pepper-mcp-gemini`: Gemini does the listening, the toggle is for the server's STT |
-| Pepper never answers | expected with plain `pepper-mcp`: run `pepper-mcp-gemini` (step 15) |
+| Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 12); nothing else answers |
+| Pepper hears itself | the mic is muted while Pepper makes sound, plus a 0.4 s tail: talk after it has finished speaking |
 | `GEMINI_LIVE_KEY is not set` | `.env` missing or you are not in the repo root: step 4 |
 | `pepper-mcp-gemini`: Pepper does not react to speech | log says `microphone(s) … look dead`: that head mic failed, `--mic auto` already skips it (or force one with `--mic left`); otherwise stand within ~1.5 m and speak after Pepper has finished (the mic is muted while it makes sound); `1011 … exceeded quota` at connect = the key's free-tier limit |
+| `pepper-mcp-gemini`: `ignoring PEPPER_…` warning | an old `.env` or shell still sets a removed variable: delete it (see Configuration) |

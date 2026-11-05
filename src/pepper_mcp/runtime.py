@@ -8,9 +8,9 @@ was disabled in :class:`pepper_mcp.config.Settings`; tools check and report that
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
+from collections import deque
 from typing import Any
 
 from pepper_mcp import __version__
@@ -68,9 +68,10 @@ class Runtime:
         self.cameras: Cameras | None = Cameras(conn, settings.camera_resolution, settings.camera_fps,
                                                settings.jpeg_quality)
         self.mic: MicrophoneStream | None = MicrophoneStream(conn, settings.audio_rate, settings.mic)
-        self.listener = None
-        #: set by an in-process voice agent (pepper-mcp-gemini) that takes the mic stream itself
+        #: the voice agent that owns the mic stream, e.g. "Gemini Live (<model>)"; set by the bridge
         self.voice_agent: str | None = None
+        #: the conversation as the voice agent reports it: {"role": "user"|"robot", "text", "at"}
+        self.transcript: deque[dict[str, Any]] = deque(maxlen=200)
         self.reflexes = None
         self.vision = None
         self.preview = None
@@ -148,11 +149,6 @@ class Runtime:
         else:
             self.mic = None
 
-        if self.mic is not None and s.listening and s.stt_backend != "none":
-            self._optional("listener", self._start_listener)
-        elif s.stt_backend == "none":
-            log.info("hearing disabled (stt backend 'none'); recognize_keywords still works on the robot")
-
         if s.reflexes_enabled:
             self._optional("reflexes", self._start_reflexes)
 
@@ -173,21 +169,6 @@ class Runtime:
         self.started_at = time.time()
         self.bus.publish("server.started", {"version": __version__, "robot": info,
                                             "startup_s": round(time.monotonic() - t0, 2)}, source="server")
-
-    def _start_listener(self) -> None:
-        from pepper_mcp.speech.listener import Listener
-        from pepper_mcp.speech.stt import make_stt
-        from pepper_mcp.speech.vad import make_vad
-
-        s = self.settings
-        stt = make_stt(s.stt_backend, s.stt_model, s.stt_device, s.stt_compute_type,
-                       s.stt_language or None, s.stt_url, s.stt_api_key,
-                       download_root=os.path.join(os.getcwd(), ".models") if s.stt_backend == "faster-whisper" else None)
-        self.listener = Listener(self.mic, make_vad(s.vad_aggressiveness), stt, self.bus, self.speech,
-                                 end_silence_ms=s.vad_end_silence_ms, min_speech_ms=s.vad_min_speech_ms,
-                                 max_utterance_s=s.vad_max_utterance_s, echo_tail_ms=s.tts_echo_tail_ms,
-                                 barge_in=s.barge_in)
-        self.listener.start()
 
     def _start_reflexes(self) -> None:
         from pepper_mcp.reflexes import ReflexManager, builtin_reflexes
@@ -218,7 +199,6 @@ class Runtime:
         for label, fn in (
             ("reflexes", lambda: self.reflexes and self.reflexes.stop()),
             ("vision", lambda: self.vision and self.vision.stop()),
-            ("listener", lambda: self.listener and self.listener.stop()),
             ("mic", lambda: self.mic and self.mic.close()),
             ("cameras", lambda: self.cameras and self.cameras.stop()),
             ("tracker", lambda: self.tracker and self.tracker.stop()),
@@ -258,7 +238,6 @@ class Runtime:
             "autonomous_life": self.awareness.life_state(),
             "liveliness_preset": self.awareness.preset,
             "speech": self.speech.status(),
-            "listening": self.listener.status() if self.listener else {"enabled": False},
             "people_count": len(people),
             "people": people[:5],
             "tracking": self.tracker.status() if self.tracker else None,
@@ -285,9 +264,7 @@ class Runtime:
             "features": {
                 "camera": self.cameras is not None,
                 "microphone": self.mic is not None and self.mic.running,
-                "hearing": self.listener is not None and self.listener.enabled,
-                "stt_backend": self.listener.stats.get("stt") if self.listener else None,
-                "vad": self.listener.stats.get("vad") if self.listener else None,
+                "voice_agent": self.voice_agent,
                 "animated_speech": self.conn.has_service("ALAnimatedSpeech"),
                 "perception": self.perception.active if self.perception else {},
                 "memory_events": self.memory.native_supported,

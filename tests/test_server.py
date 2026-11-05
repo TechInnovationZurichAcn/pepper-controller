@@ -40,20 +40,18 @@ def client_ctx():  # type: ignore[no-untyped-def]
     return connected
 
 
-async def test_tools_resources_prompts_listed(client_ctx) -> None:  # type: ignore[no-untyped-def]
+async def test_tools_and_resources_listed(client_ctx) -> None:  # type: ignore[no-untyped-def]
     async with client_ctx() as client:
         tools = {t.name for t in (await client.list_tools()).tools}
-        expected = {"say", "listen", "wait_for_event", "camera_snapshot", "move", "play_gesture", "get_people",
+        expected = {"say", "mic_level", "wait_for_event", "camera_snapshot", "move", "play_gesture", "get_people",
                     "set_leds", "tablet_show_text", "follow_person", "navigate_to", "set_reflex", "robot_status",
                     "define_gesture", "recognize_keywords", "record_clip", "stop_motion"}
         assert expected <= tools
         assert len(tools) > 90
         uris = {str(r.uri) for r in (await client.list_resources()).resources}
         assert {"pepper://status", "pepper://events", "pepper://people", "pepper://transcript"} <= uris
-        prompts = {p.name for p in (await client.list_prompts()).prompts}
-        assert prompts == {"pepper_live_agent", "pepper_quick_reference"}
-        prompt = await client.get_prompt("pepper_live_agent", {"persona_name": "Robo"})
-        assert "You are Robo" in prompt.messages[0].content.text
+        assert not (await client.list_prompts()).prompts  # Gemini gets its own persona
+        assert not {"listen", "set_listening", "get_transcript"} & tools  # Gemini is the ears
 
 
 async def test_status_say_and_speech_events(client_ctx) -> None:  # type: ignore[no-untyped-def]
@@ -145,12 +143,6 @@ async def test_move_watchdog_and_stop_motion(client_ctx) -> None:  # type: ignor
         assert client.robot.services["ALMotion"].count("stopMove") >= 1
         report = _json(await client.call_tool("stop_motion", {}))
         assert report["base"] == "stopped"
-
-
-async def test_listen_without_stt_reports_disabled(client_ctx) -> None:  # type: ignore[no-untyped-def]
-    async with client_ctx() as client:
-        res = _json(await client.call_tool("listen", {"timeout_s": 0.2}))
-        assert "error" in res  # stt backend none -> hearing disabled, tool says so instead of timing out
 
 
 async def test_leds_tablet_tracking_navigation(client_ctx) -> None:  # type: ignore[no-untyped-def]

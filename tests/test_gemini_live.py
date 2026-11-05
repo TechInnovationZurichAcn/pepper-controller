@@ -200,6 +200,29 @@ def test_late_transcript_only_delays_speech_briefly() -> None:
     assert f.text("<no speech>") == [] and f.audio(b"d") == [b"d"]  # too late to take back
 
 
+def test_interrupted_turns_trailing_transcript_does_not_leak_into_the_next_turn() -> None:
+    f = SpeechFilter(["wave"])
+    f.audio(b"old")
+    f.interrupt()
+    assert f.text("Sure, let me") == []  # the interrupted turn's tail
+    assert _turn(f, b"a", "Wave", b"b") == []  # the next turn is still filtered
+
+
+async def test_cancelled_sound_tool_does_not_leave_the_mic_muted() -> None:
+    class Hanging:
+        async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+            await asyncio.sleep(60)
+
+    bridge = _bridge()
+    task = asyncio.create_task(bridge._run_tools(RecordingSession(), Hanging(), None, [Call("play_gesture", {})]))
+    await asyncio.sleep(0.05)
+    assert bridge.gate.muted()
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    bridge.gate._quiet_at = 0.0  # skip the reverb tail
+    assert not bridge.gate.muted()
+
+
 async def test_receive_drops_placeholder_turns_and_plays_real_ones() -> None:
     def msg(text: str | None = None, audio: bytes | None = None, done: bool = False) -> Any:
         part = type("P", (), {"inline_data": type("D", (), {"data": audio})()})()
@@ -249,6 +272,15 @@ def test_body_reflexes_are_not_reported_so_gemini_does_not_narrate_them() -> Non
         assert format_event("reflex.completed", {"reflex": reflex, "result": {"looked": True}}) is None
     high_five = format_event("reflex.completed", {"reflex": "high_five", "result": {"touched": True}})
     assert high_five and "touched" in high_five
+
+
+def test_conversation_is_recorded_for_the_dashboard_even_without_printing(runtime) -> None:  # type: ignore[no-untyped-def]
+    bridge = _bridge()  # no_transcripts=True: nothing printed, the dashboard still gets it
+    bridge.rt = runtime
+    bridge._show("heard", "hello Pepper")
+    bridge._show("said", "Hi there!")
+    bridge._show("tool", "move(...)")
+    assert [(t["role"], t["text"]) for t in runtime.transcript] == [("user", "hello Pepper"), ("robot", "Hi there!")]
 
 
 def test_silence_markers_are_not_shown_as_speech() -> None:
@@ -411,8 +443,6 @@ def test_mic_always_streams_at_geminis_input_rate(monkeypatch) -> None:  # type:
     monkeypatch.setenv("PEPPER_AUDIO_RATE", "48000")
     settings, _ = _parse(["--fake"])
     assert settings.audio_rate == 16000
-    with pytest.raises(SystemExit):
-        _parse(["--fake", "--audio-rate", "48000"])
 
 
 # ---------------------------------------------------------------- speaker stream
@@ -473,3 +503,14 @@ def test_speaker_stream_paces_itself_close_to_real_time() -> None:
     # Never more than LEAD_S ahead of the robot: writing 1 s of audio takes ~1 s - LEAD_S.
     assert 1.0 - SpeakerStream.LEAD_S - 0.15 < elapsed < 1.0
     assert 0 < stream.remaining() <= SpeakerStream.LEAD_S + 0.11
+
+
+def test_settings_of_removed_features_are_reported(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from pepper_mcp.config import removed_env_vars
+
+    monkeypatch.delenv("PEPPER_STT", raising=False)
+    monkeypatch.delenv("PEPPER_MCP_TRANSPORT", raising=False)
+    assert "PEPPER_STT" not in removed_env_vars()
+    monkeypatch.setenv("PEPPER_STT", "faster-whisper")
+    monkeypatch.setenv("PEPPER_MCP_TRANSPORT", "stdio")
+    assert {"PEPPER_STT", "PEPPER_MCP_TRANSPORT"} <= set(removed_env_vars())

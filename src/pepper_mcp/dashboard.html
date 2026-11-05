@@ -199,10 +199,7 @@ input[type=range]{flex:1;accent-color:var(--accent)}
     <section>
       <h2>Hearing</h2>
       <div class="toggles">
-        <div class="row"><div class="label"><b>Listening</b><small id="hear-sub">speech-to-text</small></div>
-          <button class="switch ctl" role="switch" aria-checked="false" id="sw-listen" aria-label="Listening"></button></div>
-        <div class="row"><div class="label"><b>Barge-in</b><small>people can interrupt Pepper</small></div>
-          <button class="switch ctl" role="switch" aria-checked="false" id="sw-barge" aria-label="Barge-in"></button></div>
+        <div class="row"><div class="label"><b>Microphone</b><small id="hear-sub">–</small></div></div>
       </div>
       <p class="note" id="hear-note" hidden></p>
     </section>
@@ -370,9 +367,9 @@ function renderHeader(st) {
   $("#h-awake").textContent = (st.awake ? "awake" : "resting") + (st.posture ? " · " + st.posture : "");
   $("#h-people").textContent = "people " + (st.people_count ?? "–");
   $("#h-speak").firstElementChild.className = "dot " + (st.speech && st.speech.speaking ? "live" : "");
-  const l = st.listening || {};
-  $("#h-hear").firstElementChild.className = "dot " + (!l.enabled ? "bad" : l.in_speech ? "live" : l.muted_by_tts ? "warn" : "ok");
-  $("#h-hear").lastChild.textContent = !l.enabled ? "hearing off" : l.in_speech ? "hearing speech" : l.muted_by_tts ? "muted (speaking)" : "hearing";
+  const hearing = !!(S.voice_agent && S.mic && S.mic.running);
+  $("#h-hear").firstElementChild.className = "dot " + (hearing ? "ok" : "bad");
+  $("#h-hear").lastChild.textContent = hearing ? "hearing" : "hearing off";
   const tasks = st.running_tasks || [];
   $("#h-tasks").textContent = "tasks " + tasks.length;
   $("#h-tasks").title = tasks.map(t => t.kind + ": " + t.label).join("\n");
@@ -433,19 +430,15 @@ function renderTracking(st) {
   }
 }
 
-function renderHearing(st) {
-  const l = st.listening || {}, agent = S.voice_agent;
-  setSw($("#sw-listen"), S.features.listener ? l.enabled : null);
-  setSw($("#sw-barge"), S.features.listener ? l.barge_in : null);
-  $("#hear-sub").textContent = S.features.listener ? (l.stt ? "STT: " + l.stt : "speech-to-text") +
-    (l.vad ? " · VAD: " + l.vad : "") : agent ? "handled by " + agent
-    : "unavailable (no mic or --stt none)";
+function renderHearing() {
+  const agent = S.voice_agent, mic = S.mic;
+  $("#hear-sub").textContent = !mic || !mic.running ? "off (no microphone stream)"
+    : mic.mic + " head mic" + (agent ? " → " + agent : " · no voice agent connected");
   const note = $("#hear-note");
   note.hidden = !agent;
-  note.textContent = agent ? "Pepper's microphone is streamed directly to " + agent +
-    ", which does its own listening. The server's speech-to-text is off, so Listening and " +
-    "Barge-in are not available here. The mic is muted while Pepper speaks, so wait until it " +
-    "has finished before talking." : "";
+  note.textContent = agent ? "Pepper's microphone is streamed directly to " + agent + ", which does " +
+    "the listening; there is no separate speech-to-text to switch. The mic is muted while Pepper " +
+    "speaks, so wait until it has finished before talking." : "";
 }
 
 function renderGestures(list) {
@@ -470,11 +463,11 @@ function renderChat(lines) {
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   if (!lines.length) {
-    box.replaceChildren(h("div", {class: "empty"}, S.features.listener ? "Nothing heard yet" : "Hearing is off"));
+    box.replaceChildren(h("div", {class: "empty"}, S.voice_agent ? "Nothing said yet" : "No voice agent connected"));
     return;
   }
   box.replaceChildren(...lines.map(l => h("div", {class: "bubble " + (l.role === "user" ? "user" : "robot")},
-    h("small", {}, new Date(l.at * 1000).toLocaleTimeString() + (l.stt_latency_ms ? " · STT " + l.stt_latency_ms + " ms" : "")),
+    h("small", {}, new Date(l.at * 1000).toLocaleTimeString()),
     l.text)));
   box.scrollTop = box.scrollHeight;
 }
@@ -523,7 +516,7 @@ function render() {
   renderPerception(S.perception);
   renderAutonomy(st);
   renderTracking(st);
-  renderHearing(st);
+  renderHearing();
   const vol = $("#volume");
   if (document.activeElement !== vol && S.volume != null) { vol.value = S.volume; $("#volume-val").textContent = S.volume; }
   // rows built above are new .ctl elements
@@ -593,8 +586,6 @@ $("#stop").addEventListener("click", () => act("stop", {}, "Stopped everything")
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") act("stop", {}, "Stopped everything");
 });
-$("#sw-listen").addEventListener("click", e => act("listening", {enabled: e.currentTarget.getAttribute("aria-checked") !== "true"}));
-$("#sw-barge").addEventListener("click", e => act("listening", {barge_in: e.currentTarget.getAttribute("aria-checked") !== "true"}));
 $("#sw-track").addEventListener("click", e => act("tracking", {enabled: e.currentTarget.getAttribute("aria-checked") !== "true",
   target: $("#trk-target").value, mode: $("#trk-mode").value}));
 $("#sw-follow").addEventListener("click", e => act("follow", {enabled: e.currentTarget.getAttribute("aria-checked") !== "true"}));

@@ -18,14 +18,12 @@ from pepper_mcp.tools import register_all
 
 log = logging.getLogger(__name__)
 
-INSTRUCTIONS = """You are connected to a SoftBank Pepper robot through this server.
-Pepper can see (camera_snapshot), hear (listen / wait_for_event speech.final), talk with gestures
-(say), move its body (move, look, play_gesture, play_animation), light up (set_leds), show things
-on its tablet, play tic-tac-toe on it (tictactoe_start) and sense people, touch and sound. Events arrive in real time: call
-`wait_for_event` (or `listen`) instead of polling. Keep spoken sentences short and call `say` as
-soon as you know the first sentence – it queues, so you can keep thinking while Pepper talks.
-Reflexes (high five, greeting wave, attention) run automatically; you will be told via
-reflex.* events. Always keep people safe: small moves, stop_motion if unsure."""
+INSTRUCTIONS = """Tools of a SoftBank Pepper robot, driven by Gemini Live (pepper-mcp-gemini), which hears
+Pepper's microphone and speaks through its loudspeakers itself. Move its body (move, look,
+play_gesture, play_animation), light it up (set_leds), use its tablet and tic-tac-toe, and sense
+people, touch and sound. Long actions run as background tasks that report task.finished.
+Reflexes (high five, greeting wave, attention) run automatically and report reflex.* events.
+Always keep people safe: small moves, stop_motion if unsure."""
 
 
 def create_server(settings: Settings, runtime: Runtime | None = None) -> MCPServer:
@@ -47,7 +45,6 @@ def create_server(settings: Settings, runtime: Runtime | None = None) -> MCPServ
     modules = register_all(mcp, rt)
     log.info("registered tool modules: %s", ", ".join(modules))
     _register_resources(mcp, rt)
-    _register_prompts(mcp)
     return mcp
 
 
@@ -84,11 +81,10 @@ def _register_resources(mcp: MCPServer, rt: Runtime) -> None:
         return _dump(EVENT_CATALOGUE)
 
     @mcp.resource("pepper://transcript", mime_type="application/json",
-                  description="what people said (listener) and what Pepper said (speech)")
+                  description="the conversation as the voice agent heard and spoke it, plus robot TTS")
     def transcript() -> str:
-        heard = list(rt.listener.transcript) if rt.listener else []
         said = [{"role": "pepper", **u} for u in rt.speech.history(50)]
-        return _dump(sorted(heard + said, key=lambda x: x.get("at", 0)))
+        return _dump(sorted(list(rt.transcript) + said, key=lambda x: x.get("at", 0)))
 
     @mcp.resource("pepper://gestures", mime_type="application/json", description="gesture registry")
     def gestures() -> str:
@@ -109,73 +105,3 @@ def _register_resources(mcp: MCPServer, rt: Runtime) -> None:
             raise ValueError("camera disabled")
         data, _frame = rt.cameras.snapshot(camera, 640)
         return data
-
-
-# ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-LIVE_AGENT_PROMPT = """You are Pepper, a friendly, curious humanoid robot, embodied through the tools of this
-MCP server. Your goal: feel alive and responsive to the people in front of you.
-
-How to run your loop:
-1. Call `robot_status` once, then `wait_for_event` with no filter (timeout 30-60 s). It returns the
-   moment something happens: speech.final (someone talked), person.appeared, touch.start,
-   person.waving, reflex.completed, task.finished…
-2. React immediately. For speech, answer with `say` – first sentence first, short sentences, more
-   `say` calls as you go. Never wait for a gesture to finish before answering.
-3. Use your body: `play_gesture`/`play_animation` with `wait=false` alongside speech
-   (nod, wave, celebrate, shake_head), `look_at_person`, `set_leds`, `tablet_show_text` for
-   key words or emojis. Vary gestures; don't repeat the same one twice in a row.
-4. Look when it matters: `camera_snapshot` before describing the scene, guessing what someone
-   holds, or when you hear "look"/"see". Use `get_people` for distances and faces.
-5. Reflexes already handle high fives, greeting waves and attention lights. When you get
-   `reflex.completed` for high_five with touched=true, celebrate verbally; if false, tease gently.
-6. You have full body control – use it like a person would. Turn to face people (`turn`, e.g. 180
-   to turn around), walk over (`move_to`, metres), drive (`move`), lean and crouch
-   (`set_body_lean`), move arms, hands, head and single joints (`arm_pose`, `set_hands`, `look`,
-   `set_joint_angles`). Base moves report what really happened: if a move_to/turn task ends with
-   ok=false or you get `motion.blocked`, something is inside the safety distance – say so, step
-   around it, or lower it with `set_safety` when the space is clear. Keep people safe: modest
-   speeds, `stop_motion` when someone asks you to stop, never drive while someone touches you.
-7. Act, don't narrate. Never announce or explain a tool call, a gesture, where you look or what an
-   event told you ("you're looking at me, so I nod"). Do it silently; speak only what you would
-   say to the person anyway. A successful move needs no comment; a refused one does.
-8. If nothing happens for a while, do something idle but alive: look around (`look_toward`),
-   a small animation, a comment about what you see.
-9. When someone wants to play a game, call `tictactoe_start`: the board appears on the tablet by
-   itself (don't show text there too; other tablet tools are refused until `tictactoe_stop`) and
-   your moves are made automatically. React to `game.move` (player=pepper) and `game.over` events
-   with a short remark; relay spoken moves with `tictactoe_move` (1-9, reading order).
-10. Only talk in the user's language (speech.final.language). Keep answers conversational,
-   1-3 short sentences unless asked for more.
-
-Timing matters more than perfect wording: respond within a second, then refine."""
-
-QUICK_REFERENCE = """Pepper MCP quick reference
-- Hear: listen(timeout_s) → {text,...}; wait_for_event(types, timeout_s, since_seq) → events
-- Talk: say(text, animated=true, wait=false); stop_speaking()
-- Body: play_gesture(name) [high_five, wave, celebrate, nod, shake_head, hug_open, point_forward,
-  bow, sixty_seven, clown_dance]; play_animation(name or tag); look(yaw,pitch);
-  look_at_person(); arm_pose(side,pose); set_hands(); go_to_posture("StandInit")
-- Move: move(vx,vy,vtheta,duration_s ≤5); move_to(x,y,theta_deg); turn(deg); navigate_to(x,y); stop_motion();
-  set_body_lean(hip_pitch,hip_roll,knee); set_joint_angles(); set_safety(front_m, side_m)
-- See: camera_snapshot(camera top|bottom|depth); get_people(); analyze_face(); get_sonar()
-- Lights/tablet: set_leds(group,color); set_mood_lights(mood); tablet_show_text(text)
-- Games: tictactoe_start(human_symbol, human_first, difficulty); tictactoe_move(cell 1-9); tictactoe_state();
-  tictactoe_stop()
-- Reflexes: list_reflexes(); set_reflex(name, enabled, params)
-- Events: speech.final, speech.started, person.appeared/left/waving/looking_at_robot/engaged,
-  touch.start/end, sound.located, reflex.triggered/completed, task.finished, tts.started/finished,
-  nav.status, motion.blocked, battery.low, robot.fell, game.started/move/over"""
-
-
-def _register_prompts(mcp: MCPServer) -> None:
-    @mcp.prompt(name="pepper_live_agent", description="system prompt for a lively, real-time Pepper persona")
-    def live_agent(persona_name: str = "Pepper", language: str = "English") -> str:
-        return LIVE_AGENT_PROMPT.replace("You are Pepper", f"You are {persona_name}") + \
-            f"\n\nDefault language: {language}."
-
-    @mcp.prompt(name="pepper_quick_reference", description="one-page cheat sheet of tools and events")
-    def quick_reference() -> str:
-        return QUICK_REFERENCE

@@ -9,7 +9,7 @@ from pepper_mcp.runtime import Runtime
 
 def make_settings(**overrides) -> Settings:  # type: ignore[no-untyped-def]
     # mic="front": the auto mic probe costs ~0.6 s per runtime and has its own tests
-    s = Settings(fake=True, stt_backend="none", preview_port=0, memory_poll_s=0.03, mic="front")
+    s = Settings(fake=True, preview_port=0, memory_poll_s=0.03, mic="front")
     s.apply_overrides(overrides)
     s.validate()
     return s

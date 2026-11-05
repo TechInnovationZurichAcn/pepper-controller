@@ -5,10 +5,12 @@ every robot feature the repository already proved on the real Pepper (NAOqi
 2.5.10.7, `main` branch teleop code) plus the NAOqi 2.5 services needed for a
 lively, real-time conversation partner.
 
-**Status:** all tools, resources and prompts listed here are implemented in
-`src/pepper_mcp/tools/*` and exercised end-to-end against the in-memory fake robot
-(`pytest`, 106 tools over stdio and streamable-HTTP). Hardware behaviour still has to be
-confirmed once with `pepper-mcp-verify` – see `docs/ROBOT_VERIFICATION.md`.
+**Status:** all tools and resources listed here are implemented in `src/pepper_mcp/tools/*` and
+exercised against the in-memory fake robot (`pytest`: 107 tools, 10 resources (one of them a
+template), no prompts). They run inside `pepper-mcp-gemini`, which offers 94 of the tools to Gemini
+Live. The 13 marked † are not offered (`EXCLUDED_TOOLS` in `src/pepper_mcp/gemini_live.py`).
+Hardware behaviour still has to be confirmed once with `pepper-mcp-verify` – see
+`docs/ROBOT_VERIFICATION.md`.
 
 Legend – **Source**: where the capability comes from.
 `main` = already used by the teleop code on `main`; `naoqi` = NAOqi 2.5 service not
@@ -48,8 +50,7 @@ New capabilities added for real-time interaction (not on `main`):
 
 | Capability | Service | Exposed as |
 |---|---|---|
-| Live microphone stream into the laptop (16 kHz, front mic or the first working one, `--mic`) | `ALAudioDevice` remote module (`processRemote`) | `listen`, `speech.*` events, `mic_level`, `record_clip`, `/audio.wav` preview |
-| Speech-to-text (local faster-whisper or OpenAI-compatible HTTP) with VAD and echo gating | laptop | `listen`, `set_listening`, `get_transcript` |
+| Live microphone stream into the laptop (16 kHz, front mic or the first working one, `--mic`) | `ALAudioDevice` remote module (`processRemote`) | `mic_level`, `record_clip`, `/audio.wav` preview, Gemini Live input |
 | Animated speech (gestures synchronised with words) | `ALAnimatedSpeech` | `say(animated=True)` |
 | Wave / raised-hand detection (3D sensor) | `ALWavingDetection` | `person.waving` event, `high_five` reflex |
 | Gaze (is the person looking at me) | `ALGazeAnalysis` | `get_people[].looking_at_robot`, `person.looking_at_robot` |
@@ -66,12 +67,14 @@ New capabilities added for real-time interaction (not on `main`):
 
 ## 2. Tools
 
+† = not offered to Gemini Live (`EXCLUDED_TOOLS`); every other tool is.
+
 ### 2.1 Robot & system
 
 | Tool | Arguments | Returns | Source |
 |---|---|---|---|
-| `robot_status` | – | connection, robot name, NAOqi version, battery %, posture, autonomous-life state, speaking/listening flags, people count, active reflexes, open tasks | main |
-| `robot_capabilities` | – | available NAOqi services, cameras, STT backend, mic state, optional features detected | main |
+| `robot_status` | – | connection, robot name, NAOqi version, battery %, posture, autonomous-life state, speaking flag, people count, active reflexes, open tasks | main |
+| `robot_capabilities` | – | available NAOqi services, cameras, mic state, voice agent, optional features detected | main |
 | `list_services` | – | NAOqi service names | main |
 | `wake_up` / `rest` | – | ok | main |
 | `get_battery` | – | charge %, charging flag | naoqi |
@@ -87,11 +90,11 @@ New capabilities added for real-time interaction (not on `main`):
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `say` | `text`, `animated=True`, `wait=False`, `language?`, `speed? (50-400 %)`, `pitch? (50-200 %)`, `volume? (0-100)`, `body_language: contextual\|random\|disabled` | `utterance_id`; `tts.finished` event when done |
-| `stop_speaking` | – | ok (also flushes the queue) |
-| `speech_status` | – | speaking flag, queue length, current utterance |
-| `set_voice` | `language?`, `speed?`, `pitch?`, `voice?` | current voice settings |
-| `list_languages` | – | installed TTS languages and voices |
+| `say` † | `text`, `animated=True`, `wait=False`, `language?`, `speed? (50-400 %)`, `pitch? (50-200 %)`, `volume? (0-100)`, `body_language: contextual\|random\|disabled` | `utterance_id`; `tts.finished` event when done |
+| `stop_speaking` † | – | ok (also flushes the queue) |
+| `speech_status` † | – | speaking flag, queue length, current utterance |
+| `set_voice` † | `language?`, `speed?`, `pitch?`, `voice?` | current voice settings |
+| `list_languages` † | – | installed TTS languages and voices |
 
 `say` returns immediately and speech is queued in order, so the client can send a
 sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
@@ -100,13 +103,13 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `listen` | `timeout_s=20` | the next recognised utterance `{text, language, started_at, ended_at, stt_latency_ms}` or `{timeout: true}` |
-| `set_listening` | `enabled`, `barge_in?` | listener state |
-| `get_transcript` | `limit=20` | recent utterances with timestamps |
-| `mic_level` | – | current RMS level, speech-detected flag |
-| `record_clip` | `seconds (≤10)` | WAV audio content (16 kHz mono) |
-| `recognize_keywords` | `words[]`, `timeout_s`, `word_spotting=True` | the recognised word + confidence (on-robot `ALSpeechRecognition`, no STT needed) |
-| `start_builtin_dialog` / `stop_builtin_dialog` | `qichat_topic` | ok (offline QiChat; exclusive with `recognize_keywords`) |
+| `mic_level` | – | the head mic in use, per-mic energies, RMS level, callback rate, age of the last buffer |
+| `record_clip` † | `seconds (≤10)` | WAV audio content (16 kHz mono) |
+| `recognize_keywords` † | `words[]`, `timeout_s`, `word_spotting=True` | the recognised word + confidence (on-robot `ALSpeechRecognition`) |
+| `start_builtin_dialog` / `stop_builtin_dialog` † | `qichat_topic` | ok (offline QiChat; exclusive with `recognize_keywords`) |
+
+There is no free-speech tool any more: Gemini Live hears the microphone stream itself
+(`pepper-mcp-gemini`, see README step 12).
 
 ### 2.4 Motion
 
@@ -161,7 +164,7 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | Tool | Arguments | Returns |
 |---|---|---|
 | `camera_snapshot` | `camera: top\|bottom\|depth`, `max_width=640`, `quality=80` | JPEG image content (+ timestamp, age ms) |
-| `camera_stream` | `camera`, `enabled`, `fps`, `resolution: qvga\|vga` | stream state |
+| `camera_stream` † | `camera`, `enabled`, `fps`, `resolution: qvga\|vga` | stream state |
 | `camera_status` | – | per camera: running, fps achieved, last frame age |
 
 ### 2.8 Audio output
@@ -171,7 +174,7 @@ Built-in gestures: `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 | `play_audio` | `source` (robot path or http(s) URL), `volume`, `loop`, `wait` | task id |
 | `play_sine` | `frequency_hz`, `duration_s`, `volume` | ok |
 | `stop_audio` | – | ok |
-| `upload_audio` | `local_path` | robot path (scp, needs the `nao` password) |
+| `upload_audio` † | `local_path` | robot path (scp, needs the `nao` password) |
 
 ### 2.9 LEDs
 
@@ -235,10 +238,10 @@ tablet …" until `tictactoe_stop`.
 
 | Tool | Arguments | Returns |
 |---|---|---|
-| `wait_for_event` | `types[]?`, `timeout_s=30`, `since_seq?` | events that arrived (returns as soon as the first matching event arrives) |
+| `wait_for_event` † | `types[]?`, `timeout_s=30`, `since_seq?` | events that arrived (returns as soon as the first matching event arrives) |
 | `get_events` | `since_seq?`, `types[]?`, `limit=50` | recent events |
 | `list_event_types` | – | event catalogue with payload descriptions |
-| `list_tasks` / `wait_task` / `cancel_task` | `task_id`, `timeout_s` | task state |
+| `list_tasks` / `wait_task` † / `cancel_task` | `task_id`, `timeout_s` | task state |
 
 ### 2.14 Reflexes
 
@@ -247,7 +250,9 @@ tablet …" until `tictactoe_stop`.
 | `list_reflexes` | – | name, enabled, description, parameters, trigger count |
 | `set_reflex` | `name`, `enabled?`, `params?` | new state |
 
-Built-in reflexes: `attention` (eye colour + look toward the person talking; plain noises are ignored),
+Built-in reflexes: `attention` (eye colour and a head turn toward a person talking; under
+`pepper-mcp-gemini` the eye colours and speech-triggered turns are inactive, because they wait for
+`speech.*` events that nothing publishes any more),
 `high_five` (raised hand → arm up, wait for touch, celebrate), `greet` (new person
 → raise the right hand high and wave, via the `wave` gesture), `touch_reaction` (head/hand touch → LED + gesture), `low_battery`.
 
@@ -261,25 +266,18 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 | `pepper://capabilities` | same as `robot_capabilities` |
 | `pepper://people` | current people snapshot |
 | `pepper://events` | last 100 events |
-| `pepper://transcript` | recent heard utterances + spoken sentences |
+| `pepper://transcript` | the Gemini conversation (`role` user or robot, `text`, `at`) plus robot TTS history |
 | `pepper://camera/{camera}/latest.jpg` | latest JPEG frame (`top`, `bottom`, `depth`) |
 | `pepper://gestures` | gesture registry |
 | `pepper://animations` | animation list |
 | `pepper://reflexes` | reflex state |
 | `pepper://events/types` | event catalogue |
 
-## 4. Prompts
-
-| Prompt | Purpose |
-|---|---|
-| `pepper_live_agent` | System prompt that turns the LLM into a lively robot persona: event loop with `wait_for_event`, short sentences, `say` early and often, gestures with speech, how to handle high fives, safety rules |
-| `pepper_quick_reference` | One-page cheat sheet of tools and events |
-
-## 5. Events (payload summary)
+## 4. Events (payload summary)
 
 | Type | Payload |
 |---|---|
-| `speech.started` / `speech.final` / `speech.aborted` | user speech detected / `{text, language, stt_latency_ms, duration_s}` |
+| `speech.keyword` | `{word, confidence}` from `recognize_keywords` |
 | `tts.started` / `tts.finished` | `{utterance_id, text}` |
 | `person.appeared` / `person.left` | `{person_id, distance_m, bearing_deg}` |
 | `person.waving` | `{person_id, side: left\|right\|center}` |
@@ -296,18 +294,19 @@ Built-in reflexes: `attention` (eye colour + look toward the person talking; pla
 | `tablet.touched` | `{x, y}` |
 | `connection.lost` / `connection.restored` | – |
 
-## 6. Transports
+## 5. Transports
 
-* `stdio` (default) – for any local MCP client (and the in-process client of `pepper-mcp-gemini`).
-* `streamable-http` – `pepper-mcp --transport streamable-http --host 0.0.0.0 --http-port 8808`
-  (`--port` is the robot's NAOqi port, not the HTTP port).
+There is no MCP network endpoint: no stdio, streamable-HTTP or SSE transport. `pepper-mcp-gemini`
+runs the server in-process, and Gemini Live's function calls reach the tools through an in-memory
+MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a supported way to run it.
+
 * Side channel for humans and non-MCP consumers (optional, `--preview-port`):
   `http://host:port/camera/top.mjpg` (live MJPEG), `/camera/top.jpg`,
   `/audio.wav` (live 16 kHz PCM), `/events` (server-sent events), `/status`.
 * Dashboard at `/` on the same port: `GET /api/state` (status, reflexes, perception,
   abilities, cameras, volume, gestures, transcript; `control` says whether this client may act)
   and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,
-  `reflex {name, enabled}`, `listening {enabled?, barge_in?}`, `perception {name, enabled}`,
+  `reflex {name, enabled}`, `perception {name, enabled}`,
   `liveliness {preset}`, `ability {name, enabled}`, `autonomous_life {state}`,
   `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
   `stop_animation`, `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,

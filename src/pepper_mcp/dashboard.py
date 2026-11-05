@@ -58,7 +58,6 @@ def state(rt: Any) -> dict[str, Any]:
     out["features"] = {
         "camera": rt.cameras is not None,
         "microphone": rt.mic is not None,
-        "listener": rt.listener is not None,
         "perception": rt.perception is not None,
         "reflexes": rt.reflexes is not None,
         "tracker": rt.tracker is not None,
@@ -66,7 +65,8 @@ def state(rt: Any) -> dict[str, Any]:
         "audio_out": rt.audio_out is not None,
         "navigation": rt.navigator is not None,
     }
-    out["voice_agent"] = getattr(rt, "voice_agent", None)
+    out["voice_agent"] = rt.voice_agent
+    out["mic"] = ({"running": rt.mic.running, "mic": rt.mic.mic} if rt.mic is not None else None)
     out["reflexes"] = _safe("reflexes", rt.reflexes.list) if rt.reflexes else []
     out["perception"] = None
     if rt.perception is not None:
@@ -79,7 +79,7 @@ def state(rt: Any) -> dict[str, Any]:
     out["volume"] = _safe("volume", rt.audio_out.get_volume) if rt.audio_out else None
     out["gestures"] = [{"name": g["name"], "description": g.get("description", "")}
                        for g in (_safe("gestures", rt.gestures.list) or [])]
-    out["transcript"] = list(rt.listener.transcript)[-8:] if rt.listener else []
+    out["transcript"] = list(rt.transcript)[-8:]
     out["options"] = {"liveliness": sorted(PRESETS), "life_states": list(LIFE_STATES),
                       "abilities": list(ABILITIES), "moods": sorted(MOODS), "extractors": sorted(EXTRACTORS),
                       "track_targets": list(TRACK_TARGETS), "track_modes": list(TRACK_MODES)}
@@ -128,18 +128,6 @@ def _reflex(rt: Any, a: dict[str, Any]) -> Any:
     if not isinstance(name, str):
         raise ActionError("'name' must be a reflex name")
     return reflexes.set(name, _bool(a, "enabled"))
-
-
-def _listening(rt: Any, a: dict[str, Any]) -> Any:
-    if rt.listener is None and rt.mic is not None and rt.settings.stt_backend == "none":
-        raise ActionError("the server's own speech-to-text is off (--stt none). Under pepper-mcp-gemini "
-                          "that is expected: Gemini listens to Pepper's microphone directly")
-    listener = _need(rt.listener, "listener (microphone + STT)")
-    if "barge_in" in a:
-        listener.barge_in = _bool(a, "barge_in")
-    if "enabled" in a:
-        listener.set_enabled(_bool(a, "enabled"))
-    return listener.status()
 
 
 def _perception(rt: Any, a: dict[str, Any]) -> Any:
@@ -221,7 +209,6 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "wake_up": lambda rt, a: (rt.motion.prepare("StandInit"), {"awake": rt.motion.is_awake()})[1],
     "rest": lambda rt, a: (rt.stop_everything(), rt.motion.rest(), {"awake": rt.motion.is_awake()})[2],
     "reflex": _reflex,
-    "listening": _listening,
     "perception": _perception,
     "liveliness": lambda rt, a: rt.awareness.apply_preset(_choice(a, "preset", PRESETS)),
     "ability": lambda rt, a: {"applied": rt.awareness.set_ability(_choice(a, "name", ABILITIES),

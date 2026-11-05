@@ -10,10 +10,6 @@ from pydantic import Field
 from pepper_mcp.tools._common import ACTION, READ_ONLY, tool
 
 EVENT_CATALOGUE: dict[str, str] = {
-    "speech.started": "a person started talking {at}",
-    "speech.final": "transcript of what a person said {text, language, confidence, duration_s, stt_latency_ms}",
-    "speech.aborted": "speech segment dropped {reason, started_at}",
-    "speech.barge_in": "a person talked over Pepper and TTS was stopped",
     "speech.keyword": "recognize_keywords heard a word {word, confidence}",
     "tts.started": "Pepper started saying {utterance_id, text}",
     "tts.finished": "Pepper finished saying {utterance_id, text, duration_s, error}",
@@ -47,7 +43,7 @@ EVENT_CATALOGUE: dict[str, str] = {
 
 def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
     @tool(mcp, READ_ONLY)
-    async def wait_for_event(types: Annotated[list[str] | None, Field(description="event types or prefixes with '*' (e.g. ['speech.final', 'person.*', 'touch.start']); omit for any event")] = None,
+    async def wait_for_event(types: Annotated[list[str] | None, Field(description="event types or prefixes with '*' (e.g. ['person.*', 'touch.start']); omit for any event")] = None,
                              timeout_s: Annotated[float, Field(gt=0, le=600)] = 30.0,
                              since_seq: Annotated[int | None, Field(description="return events newer than this seq first (from a previous call) so nothing is missed")] = None,
                              ignore_internal: Annotated[bool, Field(description="skip tts.*, task.finished and speech.aborted noise")] = True
