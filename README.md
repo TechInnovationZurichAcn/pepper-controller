@@ -427,8 +427,10 @@ Tested from Linux laptops and a Mac mini (macOS, with `--no-move --quiet`).
 pepper-mcp-gemini --ip "$PEPPER_IP" --preview-port 8765 --liveliness off   # key from step 4
 ```
 
-Pepper wakes up, stands, and after a few seconds the terminal says `Pepper is live …`. Then
-just talk to it. The terminal shows `[heard]` (what Gemini understood), `[said]` (its answer)
+Pepper wakes up, stands, and after a few seconds the terminal says `Pepper is live …`, followed
+by the dashboard address (`Dashboard: http://localhost:8765/ …`). Then just talk to it. Started
+right after Pepper booted, it first waits (up to 90 s for NAOqi to answer, then up to 120 s for
+NAOqi to register speech, audio, camera and tablet) and says so in the log. The terminal shows `[heard]` (what Gemini understood), `[said]` (its answer)
 and `[tool]` (body actions). `Ctrl-C` stops it (step 15).
 
 Good to know:
@@ -653,6 +655,7 @@ NAOqi method needs it in `robot/fake.py` too, or the tests and `--fake` break.
 | macOS: `No route to host` / `cannot reach NAOqi` although `ping` from another app works | Local Network permission for the terminal app (step 8, macOS) |
 | `pepper-mcp-gemini` / `pepper-mcp-verify`: `command not found`, or no `.venv` folder | the venv is not in the repo, you create it once (step 3): `uv venv --python 3.12 .venv && source .venv/bin/activate && uv pip install -e ".[all,dev]"` in the repo root. Already created: it is only not active in this terminal, run `source .venv/bin/activate` |
 | `audio_callback` FAIL with `"PepperMcpAudio" … is already registered`, or `pepper-mcp-gemini` cannot get the mic | another `pepper-mcp-gemini` (maybe in another terminal or over SSH) still owns Pepper: stop it with `Ctrl-C`, or `pkill -INT -f pepper-mcp-gemini` |
+| starts but says `ALTextToSpeech` / `ALAudioDevice` / `ALVideoDevice` is not available, or `microphone is not available` | NAOqi was still starting (Pepper had just booted) and was given up on after 120 s (`NAOqi still lacks …`): wait until Pepper has said its IP / opened its eyes, then start again |
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
 | Pepper says it is not connected | it is not on the router's Wi-Fi: step 10 |
 | connects, but Gemini hears nothing | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 8; router isolation (step 7) |

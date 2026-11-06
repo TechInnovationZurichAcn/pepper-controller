@@ -27,6 +27,16 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+#: Services every Pepper (NAOqi 2.5) has but registers one by one while NAOqi starts. A server
+#: started in that window would find them missing and cache that for the whole run (no speech, no
+#: microphone, no tablet), so ``connect`` waits for them first.
+BOOT_SERVICES = ("ALMemory", "ALMotion", "ALRobotPosture", "ALTextToSpeech", "ALAudioDevice",
+                 "ALVideoDevice", "ALAutonomousLife", "ALTabletService")
+#: NAOqi takes about a minute to register everything after a reboot; the tablet comes last
+BOOT_TIMEOUT_S = 120.0
+#: how long the server waits for NAOqi to answer at all (Pepper still booting)
+CONNECT_TIMEOUT_S = 90.0
+
 
 class RobotError(RuntimeError):
     """Raised for robot-side failures that should be reported to the LLM as tool errors."""
@@ -54,7 +64,7 @@ class RobotConnection:
         self.connected_at: float | None = None
 
     # ------------------------------------------------------------------ lifecycle
-    def connect(self, timeout_s: float = 10.0) -> None:
+    def connect(self, timeout_s: float = 10.0, boot_timeout_s: float = BOOT_TIMEOUT_S) -> None:
         import qi
 
         args = ["pepper-mcp", f"--qi-url={self.url}"]
@@ -74,6 +84,9 @@ class RobotConnection:
             except Exception as exc:  # qi raises RuntimeError on connection failure
                 if time.monotonic() >= deadline:
                     raise RobotError(self._unreachable(exc)) from exc
+                if attempts == 1:
+                    log.info("NAOqi at %s is not answering yet (%s); retrying for up to %.0f s",
+                             self.url, exc, timeout_s)
                 time.sleep(1.0)
             finally:
                 try:
@@ -95,6 +108,34 @@ class RobotConnection:
         log.info("connected to NAOqi at %s (listening on %s)", self.url, self.endpoints())
         if attempts > 1:
             log.info("connected after %d attempts", attempts)
+        if boot_timeout_s > 0:
+            self.wait_until_booted(boot_timeout_s)
+
+    def wait_until_booted(self, timeout_s: float = BOOT_TIMEOUT_S,
+                          services: tuple[str, ...] = BOOT_SERVICES) -> list[str]:
+        """Wait until NAOqi has registered ``services`` (it is still starting right after Pepper
+        boots or NAOqi restarts). Returns the ones still missing after ``timeout_s``; the server
+        then starts without them, as it would on a robot that lacks them."""
+        deadline = time.monotonic() + timeout_s
+        waiting = False
+        while True:
+            try:
+                present = set(self.service_names())
+            except RobotError as exc:
+                log.debug("listing NAOqi services failed: %s", exc)
+                present = set()
+            missing = [name for name in services if name not in present]
+            if not missing:
+                if waiting:
+                    log.info("NAOqi has finished starting")
+                return []
+            if time.monotonic() >= deadline:
+                log.warning("NAOqi still lacks %s after %.0f s; starting without them", ", ".join(missing), timeout_s)
+                return missing
+            if not waiting:
+                log.info("NAOqi is still starting, waiting up to %.0f s for %s", timeout_s, ", ".join(missing))
+                waiting = True
+            time.sleep(1.0)
 
     def _unreachable(self, exc: Exception) -> str:
         msg = (f"cannot reach NAOqi at {self.url}: {exc}. Pepper booted? Right IP (press the chest "

@@ -873,3 +873,16 @@ async def test_stop_tools_still_work_during_a_dance(runtime) -> None:  # type: i
 
     await bridge._run_tools(RecordingSession(), Recording(), runtime, [Call("stop_motion", {})])
     assert called == ["stop_motion"]
+
+
+def test_dashboard_line_is_the_last_startup_line() -> None:
+    from types import SimpleNamespace
+
+    from pepper_mcp.gemini_live import dashboard_line
+
+    lan = SimpleNamespace(port=8765, host="0.0.0.0", base_url="http://192.168.178.87:8765")
+    assert dashboard_line(SimpleNamespace(preview=lan)) == (
+        "Dashboard: http://localhost:8765/  (other devices: http://192.168.178.87:8765/)")
+    local = SimpleNamespace(port=8765, host="127.0.0.1", base_url="http://192.168.178.87:8765")
+    assert dashboard_line(SimpleNamespace(preview=local)) == "Dashboard: http://localhost:8765/"
+    assert "--preview-port" in dashboard_line(SimpleNamespace(preview=None))

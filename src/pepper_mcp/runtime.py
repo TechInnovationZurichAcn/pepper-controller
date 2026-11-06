@@ -23,7 +23,7 @@ from pepper_mcp.robot.audio_in import MicrophoneStream
 from pepper_mcp.robot.audio_out import ASSETS_DIR, AudioOut
 from pepper_mcp.robot.awareness import Awareness
 from pepper_mcp.robot.camera import Cameras
-from pepper_mcp.robot.connection import RobotConnection
+from pepper_mcp.robot.connection import CONNECT_TIMEOUT_S, RobotConnection
 from pepper_mcp.robot.events import EventBus, MemoryWatcher
 from pepper_mcp.robot.gestures import GestureContext, GestureRegistry
 from pepper_mcp.robot.leds import Leds
@@ -143,7 +143,7 @@ class Runtime:
     def start(self) -> None:
         s = self.settings
         t0 = time.monotonic()
-        self.conn.connect()
+        self.conn.connect(CONNECT_TIMEOUT_S)
         self.memory.start()
         info = self.system.info()
         log.info("robot: %s", info)

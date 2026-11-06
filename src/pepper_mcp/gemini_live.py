@@ -267,6 +267,17 @@ def tool_response(result: Any) -> dict[str, Any]:
 _SILENCE_MARKERS = re.compile(r"<[^<>]*>|\{[^{}]*\}|\((?:silence|no speech|pause)\)", re.IGNORECASE)
 
 
+def dashboard_line(rt: Any) -> str:
+    """Last startup line: where to open the control dashboard."""
+    preview = rt.preview
+    if preview is None or not preview.base_url:
+        return "Dashboard: off (start with --preview-port 8765 to get one)"
+    line = f"Dashboard: http://localhost:{preview.port}/"
+    if preview.host not in ("127.0.0.1", "localhost", "::1"):
+        line += f"  (other devices: {preview.base_url}/)"
+    return line
+
+
 def clean_transcript(text: str) -> str:
     """Drop silence/pause markers from a transcript; empty when nothing was really said."""
     return " ".join(_SILENCE_MARKERS.sub(" ", text).split())
@@ -580,6 +591,7 @@ class GeminiPepper:
                 f"{rt.mic.mic} mic. Ctrl+C to stop.",
                 file=sys.stderr,
             )
+            print(dashboard_line(rt), file=sys.stderr)
             self.speaker = speaker
             threading.Thread(target=self._play_forever, args=(speaker,), name="gemini-voice", daemon=True).start()
             try:
