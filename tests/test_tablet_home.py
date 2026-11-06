@@ -131,13 +131,41 @@ def test_tablet_page_lists_and_plays_pinned_gestures(preview, monkeypatch) -> No
     assert status == 200
     assert wait_for(lambda: played == ["wave"])
 
-    # A press on the gesture that is playing stops it instead (the fake robot finishes at once).
+    # A press on a button shown as playing stops it, even before the gesture thread registered
+    # (the server must not decide from active(), or a quick second tap restarts the gesture).
     stops: list[int] = []
-    monkeypatch.setattr(rt.gestures, "active", lambda: ["wave"])
-    monkeypatch.setattr(rt.gestures, "stop_all", lambda: stops.append(1) or 1)
-    status, st = _req(play, {"name": "wave"}, key_headers(rt))
-    assert status == 200 and st["playing"] == ["wave"]
-    assert stops and played == ["wave"]
+    monkeypatch.setattr(rt.gestures, "stop_all", lambda: stops.append(1) or 0)
+    status, _ = _req(play, {"name": "wave", "stop": True}, key_headers(rt))
+    assert status == 200 and stops and played == ["wave"]
+
+
+def test_tablet_press_is_refused_while_dancing(preview, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    base, rt = preview
+    rt.tablet_home.pin("wave", True)
+    monkeypatch.setattr(rt.gestures, "dancing", lambda: "dance")
+    status, err = _req(base + tablet_home.API_PATH + "/play", {"name": "wave"}, key_headers(rt))
+    assert status == 400 and "dancing" in err["error"]
+
+
+def test_tablet_status_does_not_reveal_the_key(preview) -> None:  # type: ignore[no-untyped-def]
+    _, rt = preview
+    rt.tablet_home.pin("wave", True)
+    showing = rt.tablet.status()["showing"]["url"]
+    assert tablet_home.PAGE_PATH in showing and rt.tablet_home.key not in showing
+    assert rt.tablet_home.key in tablet_shown(rt.conn.robot.services["ALTabletService"])
+
+
+def test_pin_survives_a_game_taking_the_tablet_meanwhile(preview, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    _, rt = preview
+    real_show_url = rt.tablet.show_url
+
+    def game_wins_the_race(url: str, owner: str | None = None) -> None:
+        rt.tablet.hold(OWNER)  # tictactoe_start between the holder check and showing
+        real_show_url(url, owner)
+
+    monkeypatch.setattr(rt.tablet, "show_url", game_wins_the_race)
+    out = dashboard.run_action(rt, "tablet_gesture", {"name": "wave", "pinned": True})
+    assert out == {"pinned": ["wave"], "shown": False}
 
 
 def test_tablet_key_is_random_per_runtime(runtime) -> None:  # type: ignore[no-untyped-def]
@@ -182,6 +210,27 @@ def test_new_game_during_the_pause_keeps_the_board(preview) -> None:  # type: ig
     rt.tictactoe.restart()  # "Play again" on the tablet
     time.sleep(0.3)
     assert rt.tablet.holder == OWNER and rt.tictactoe.state()["active"]
+
+
+def test_return_is_skipped_when_the_tablet_cannot_load_the_buttons(runtime) -> None:  # type: ignore[no-untyped-def]
+    # No preview server: releasing the game would leave a dead board without a hold.
+    runtime.tablet_home.pin("wave", True)
+    runtime.tablet.hold(OWNER)
+    st = finish_game(runtime)
+    runtime.tictactoe.set_display("static")
+    runtime.tablet_home._return_from_game(st["game_id"])
+    assert runtime.tablet.holder == OWNER and runtime.tictactoe.state()["display"] == "static"
+
+
+def test_stop_if_over_only_touches_the_finished_game(runtime) -> None:  # type: ignore[no-untyped-def]
+    game = runtime.tictactoe
+    st = finish_game(runtime)
+    game.set_display("interactive")
+    game.restart()  # "Play again" landed first
+    assert game.stop_if_over(st["game_id"]) is False and game.state()["active"]
+    assert game.state()["display"] == "interactive"
+    st = game.stop()
+    assert game.stop_if_over(st["game_id"]) is True and game.state()["display"] is None
 
 
 def test_stopped_game_does_not_schedule_a_return(runtime) -> None:  # type: ignore[no-untyped-def]

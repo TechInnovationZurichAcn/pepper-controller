@@ -417,7 +417,7 @@ MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a su
   | `/api/game/tictactoe/move` / `/new` | POST | a tapped cell `{cell}` / *Play again*; open to the LAN because the tablet is another device and a game move cannot move the robot (Host, JSON and Origin checks still apply) |
   | `/tablet/gestures` | GET | the gesture buttons shown on the tablet (`tablet_gestures.html`) |
   | `/api/tablet/gestures` | GET | pinned gestures `{name, label, description}`, `playing`, `dancing`, `version` |
-  | `/api/tablet/gestures/play` | POST | a pressed button `{name}`: plays that gesture, or stops it when it is the one playing. Needs the random per-run key from the page URL as `X-Tablet-Key` (only the tablet is given it) and only pinned gestures are accepted; Host, JSON and Origin checks still apply |
+  | `/api/tablet/gestures/play` | POST | a pressed button `{name, stop?}`: plays that gesture, or with `stop: true` (the button showed it playing) stops it. Needs the random per-run key from the page URL as `X-Tablet-Key` (only the tablet is given it) and only pinned gestures are accepted; Host, JSON and Origin checks still apply |
 
   The tablet itself reaches these URLs through the TCP relay on Pepper's head
   (`robot/tablet_relay.py`), never directly.

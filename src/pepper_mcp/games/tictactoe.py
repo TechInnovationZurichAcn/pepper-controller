@@ -254,6 +254,15 @@ class TicTacToe:
                              source="game")
         return self.state()
 
+    def stop_if_over(self, game_id: int) -> bool:
+        """Clear the display of game ``game_id`` if it is still the latest one and over; False when a
+        new game started meanwhile. One lock, so a "Play again" tap cannot slip in between."""
+        with self._lock:
+            if self.game_id != game_id or self.active:
+                return False
+            self.display = None
+            return True
+
     def shutdown(self) -> None:
         with self._lock:
             self._cancel_timer()

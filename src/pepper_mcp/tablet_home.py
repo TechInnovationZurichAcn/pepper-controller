@@ -20,6 +20,7 @@ import threading
 from typing import Any
 
 from pepper_mcp.games.tictactoe import OWNER as GAME_OWNER
+from pepper_mcp.robot.tablet import TabletBusy
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +129,12 @@ class TabletHome:
         if url is None:
             log.info("gesture buttons not shown: the tablet cannot reach the preview server")
             return False
-        tablet.show_url(url)
+        try:
+            tablet.show_url(url)
+        except TabletBusy:
+            return False  # a game took the tablet since the check above; its board stays
+        # tablet_status reports what is shown to the model: keep the key out of it.
+        tablet.last = {"kind": "url", "url": url.replace(f"k={self.key}", "k=…")}
         return True
 
     def _hide_if_showing(self) -> None:
@@ -153,13 +159,13 @@ class TabletHome:
             self._timer = None
         if not self.pinned():
             return  # nothing to go back to: the result screen stays, as without pinned gestures
-        game = self.rt.tictactoe
-        st = game.state()
-        if st["game_id"] != game_id or st["active"]:
+        tablet = self.rt.tablet
+        if tablet is None or not tablet.available() or self.url() is None:
+            log.info("game over, but the tablet cannot load the gesture buttons; the board stays")
+            return
+        if not self.rt.tictactoe.stop_if_over(game_id):
             return  # "Play again" (or a new game) during the pause keeps the board
-        game.stop()  # over already, so no event; clears the display mode
-        if self.rt.tablet is not None:
-            self.rt.tablet.release(GAME_OWNER)
+        tablet.release(GAME_OWNER)
         try:
             self.show()
         except Exception as exc:

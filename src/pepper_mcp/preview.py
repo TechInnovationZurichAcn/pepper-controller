@@ -270,8 +270,10 @@ class PreviewServer:
             pass
 
     def _tablet_gesture_post(self, handler: Any) -> None:
-        """A press on a gesture button on the tablet: plays the gesture, or stops it when it is the
-        one playing. Only the tablet has the key, and only pinned gestures can be played."""
+        """A press on a gesture button on the tablet: ``{name}`` plays the gesture, ``{name, stop: true}``
+        (the button shows it playing) stops it. The page sends what the person saw, because a
+        gesture that was just started may not be running yet. Only the tablet has the key, and only
+        pinned gestures can be played."""
         denied = control_denied(handler.client_address[0], handler.headers, self.rt.settings.preview_token,
                                 json_body=True, open_to_lan=True)
         home = self.rt.tablet_home
@@ -288,7 +290,7 @@ class PreviewServer:
             name = args.get("name") if isinstance(args, dict) else None
             if not isinstance(name, str) or not home.is_pinned(name):
                 raise ValueError("this gesture is not on the tablet")
-            if name in self.rt.gestures.active():
+            if args.get("stop") is True:
                 dashboard.run_action(self.rt, "stop_gesture", {})
             else:
                 dashboard.run_action(self.rt, "gesture", {"name": name})

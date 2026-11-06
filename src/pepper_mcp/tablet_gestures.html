@@ -132,7 +132,7 @@
     delete pressed[name];
     if (!stopping) { pressed[name] = new Date().getTime(); }
     busy = true;
-    request("POST", API + "/play", {name: name}, function (status, data) {
+    request("POST", API + "/play", {name: name, stop: stopping}, function (status, data) {
       busy = false;
       if (status === 200) {
         accept(status, data);
