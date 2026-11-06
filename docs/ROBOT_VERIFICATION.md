@@ -15,7 +15,7 @@ uv pip install -e ".[all,dev]"
 ```
 
 The robot must be powered on, reachable on port 9559 and allowed to connect back to the
-laptop (firewall rule). README steps 6–10 cover getting there and finding `<PEPPER_IP>`.
+laptop (firewall rule). README steps 6–11 cover getting there and finding `<PEPPER_IP>`.
 
 ## 1. Automated checklist
 
@@ -32,7 +32,7 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 | tts | `ALTextToSpeech.say` async future completes, `ALTextToSpeech/TextDone` fires | speech queue falls back to blocking `say` in its own thread |
 | animated_speech | `ALAnimatedSpeech.say` with `bodyLanguageMode=contextual` | `say(animated=False)` |
 | memory_subscriber | `ALMemory.subscriber(...).signal.connect` works | polling watcher (automatic) |
-| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check `--qi-listen-url` and the firewall (README step 10). One mic far below the others = dead mic, `--mic auto` skips it |
+| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check `--qi-listen-url` and the firewall (README step 8). One mic far below the others = dead mic, `--mic auto` skips it |
 | camera | QVGA RGB frame from top camera in < 100 ms, depth frame from camera 2 | lower fps / resolution |
 | waving | `ALWavingDetection` subscribe + `PeoplePerception/Person/<id>/IsWaving` key | Gemini sees the wave on the camera stream and calls `play_gesture high_five` |
 | animations | `ALBehaviorManager.getInstalledBehaviors()` contains `animations/Stand/...` | curated list in `animation.py` |
@@ -76,7 +76,7 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
    `features.tablet_url` shows the relay address when it is up.
 8. Ask Pepper to turn around: the base must turn. If it says the charging hatch is open, close
    the flap on the lower back.
-9. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
+9. Stop with `Ctrl-C` before starting another process that owns the robot (README step 15).
    The log must end without errors and NAOqi's safety distances are back at 0.4 / 0.1 m.
 
 ## 3. Known firmware quirks handled in code

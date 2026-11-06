@@ -127,7 +127,7 @@ sentence as soon as the LLM finishes generating it (streaming TTS pipeline).
 | `start_builtin_dialog` / `stop_builtin_dialog` † | `qichat_topic` | ok (offline QiChat; exclusive with `recognize_keywords`) |
 
 There is no free-speech tool any more: Gemini Live hears the microphone stream itself
-(`pepper-mcp-gemini`, see README step 12).
+(`pepper-mcp-gemini`, see README step 13).
 
 ### 2.4 Motion
 
