@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import struct
 import time
 import urllib.error
 import urllib.request
@@ -252,3 +253,36 @@ def test_stop_gesture_with_nothing_playing_leaves_the_posture_alone(runtime, fak
     assert dashboard.run_action(runtime, "stop_gesture", {}) == {"gestures_stopped": 0, "reset": None}
     time.sleep(0.1)
     assert posture.count("goToPosture") == before
+
+
+@pytest.mark.parametrize("payload", [
+    None,  # idle keep-alive connection dropped (the tablet WebView does this on XHR timeouts)
+    b"GET /api/tab",  # dropped mid request line
+    b"POST /api/game/tictactoe/move HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+    b"Content-Length: 50\r\n\r\n{\"ce",  # dropped mid body
+])
+def test_client_dropping_the_connection_prints_no_traceback(preview, capfd, payload: bytes | None) -> None:  # type: ignore[no-untyped-def]
+    base, _ = preview
+    port = int(base.rsplit(":", 1)[1])
+    sock = socket.create_connection(("127.0.0.1", port))
+    if payload:
+        sock.sendall(payload)
+    time.sleep(0.05)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))  # RST, like a dead relay
+    sock.close()
+    time.sleep(0.3)
+    assert "Traceback" not in capfd.readouterr().err
+    with urllib.request.urlopen(base + "/api/state", timeout=5) as r:  # still serving
+        assert r.status == 200
+
+
+def test_unexpected_handler_errors_are_logged_not_printed(preview, capfd, caplog, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    base, rt = preview
+    monkeypatch.setattr(rt.tablet_home, "key_ok", lambda key: 1 / 0)
+    req = urllib.request.Request(base + "/api/tablet/gestures/play", data=b"{}", method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with pytest.raises((urllib.error.URLError, ConnectionError)):  # no response, the handler died
+        urllib.request.urlopen(req, timeout=5)
+    time.sleep(0.1)
+    assert "Traceback" not in capfd.readouterr().err
+    assert any("ZeroDivisionError" in (r.exc_text or "") or r.exc_info for r in caplog.records)

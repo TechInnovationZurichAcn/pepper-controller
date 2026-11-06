@@ -29,6 +29,7 @@ import os
 import queue
 import socket
 import struct
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -98,6 +99,21 @@ def _lan_ip(target_ip: str | None) -> str:
         return "127.0.0.1"
     finally:
         sock.close()
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """socketserver prints a traceback to stderr for any error a handler raises. A client that
+        drops its connection is normal here (the tablet's WebView aborts timed-out polls, the relay
+        on the head resets sockets when it restarts), so that is only a debug line; anything else is
+        a real bug and goes through logging with its traceback."""
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionError, TimeoutError)):
+            log.debug("preview client %s went away: %s", client_address, exc)
+            return
+        log.exception("preview request from %s failed", client_address)
 
 
 class PreviewServer:
@@ -218,8 +234,7 @@ class PreviewServer:
                     self._send(500, json.dumps({"error": f"{type(exc).__name__}: {exc}"}).encode(),
                                "application/json")
 
-        self._httpd = ThreadingHTTPServer((self.host, self.port), Handler)
-        self._httpd.daemon_threads = True
+        self._httpd = _Server((self.host, self.port), Handler)
         self._thread = threading.Thread(target=self._httpd.serve_forever, name="preview-http", daemon=True)
         self._thread.start()
         ip = _lan_ip(getattr(self.rt.conn, "ip", None) if not self.rt.settings.fake else None)
