@@ -461,8 +461,9 @@ function renderGestures(list) {
     box.replaceChildren(...list.map(g => {
       const b = h("button", {class: "ctl", title: g.description, "data-name": g.name, "data-desc": g.description,
         onclick: () => b.classList.contains("playing")
-          ? act("stop_gesture", {}, "Stopped " + nice(g.name) + ", resetting the arms")
-          : (setPlaying(b, true), act("gesture", {name: g.name}, "Playing " + nice(g.name)))},
+          ? (startedAt.delete(g.name), act("stop_gesture", {}, "Stopped " + nice(g.name) + ", resetting the arms"))
+          : (startedAt.set(g.name, Date.now()), setPlaying(b, true),
+             act("gesture", {name: g.name}, "Playing " + nice(g.name)).then(r => { if (r == null) startedAt.delete(g.name); }))},
         h("span", {class: "eq", "aria-hidden": "true"}, h("i"), h("i"), h("i")),
         h("span", {class: "stopico", "aria-hidden": "true"}),
         nice(g.name), h("small", {}, g.description));
@@ -470,9 +471,18 @@ function renderGestures(list) {
     }));
   }
   // A group (e.g. "dance") plays under its own name, so the pressed button lights up.
+  // A poll that raced the click (gesture thread not started yet) must not switch it off again.
   const playing = new Set(S.playing || []);
-  for (const b of box.children) setPlaying(b, playing.has(b.dataset.name));
+  for (const b of box.children) {
+    const name = b.dataset.name;
+    if (playing.has(name)) startedAt.delete(name);
+    const fresh = Date.now() - (startedAt.get(name) || 0) < START_GRACE_MS;
+    setPlaying(b, playing.has(name) || fresh);
+  }
 }
+
+const START_GRACE_MS = 2000;
+const startedAt = new Map();  // gesture name -> click time, until the server reports it playing
 
 function setPlaying(b, on) {
   if (b.classList.contains("playing") === on) return;
