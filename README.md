@@ -603,9 +603,9 @@ pepperApplications):
 python -m pepper_mcp.choregraphe_import /path/to/03_Pepper   # rewrites assets/animations, assets/dances
 ```
 
-The dance music (`assets/dances/*.ogg`, ~20 MB of commercial recordings) is git-ignored: on a
-fresh clone the dances run silently until you rerun the import. The tool flattens each dance's
-nested timelines into one `.qianim`, keeps the music offset and drops the base moves.
+The dance music (`assets/dances/*.ogg`, ~19 MB) is committed with the dances, so a fresh clone
+dances with music. The tool flattens each dance's nested timelines into one `.qianim`, keeps the
+music offset and drops the base moves.
 
 ## Development
 

@@ -316,7 +316,7 @@ class TimelineGesture(Gesture):
     """A Choregraphe ``.qianim`` timeline played with ``angleInterpolationBezier``, optionally
     with music started ``music_offset_s`` after the timeline's origin (dances)."""
     file: str = ""  # relative to ASSETS_DIR
-    music: str | None = None  # relative to ASSETS_DIR; git-ignored, may be missing
+    music: str | None = None  # relative to ASSETS_DIR; may be missing (dance then runs silently)
     music_offset_s: float = 0.0
     return_to_rest: bool = True
     # Choreographies are made for an audience in front of the robot: same reason as `wave`.

@@ -193,7 +193,7 @@ back on in `finally`, and `stop_motion` / `stop_animation` interrupt them (and t
 
 Dance music is uploaded to the robot over SSH on first use (a few seconds), preloaded and started
 on the beat at a volume of at least 70 (the previous volume comes back afterwards); without SSH or
-without the git-ignored `.ogg` files the dance runs silently. A joint a dance only uses later holds
+without its `.ogg` file in `assets/dances/` the dance runs silently. A joint a dance only uses later holds
 still until 1 s before its first key. A new gesture stops the running one and waits for its
 cleanup (collision protection, music) before it starts; the `idle` reflex never interrupts one. The
 Choregraphe originals also drove the base (`Move To`); those moves are left out. While a gesture

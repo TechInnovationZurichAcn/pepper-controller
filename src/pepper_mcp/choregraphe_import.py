@@ -11,8 +11,8 @@
 * ``assets/choreography.json`` lists every animation, dance and random-variant group with the
   name, description and duration the gesture registry uses.
 
-The music files are third-party recordings and stay out of git (``.gitignore``); rerun this
-tool on a fresh checkout to get them back. Dances play silently without them.
+The music files are committed next to the dances; a dance whose ``.ogg`` is missing plays
+silently.
 """
 
 from __future__ import annotations
