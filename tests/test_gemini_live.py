@@ -27,10 +27,12 @@ from pepper_mcp.gemini_live import (
     clean_transcript,
     format_event,
     load_api_key,
+    load_knowledge,
     load_persona,
     load_vocabulary,
     makes_sound,
     supports_async_tools,
+    system_instruction,
     tool_declarations,
     tool_response,
     transcription_languages,
@@ -384,6 +386,23 @@ def test_persona_is_read_from_the_given_file(tmp_path) -> None:
 def test_missing_persona_file_stops_with_a_clear_error(tmp_path) -> None:
     with pytest.raises(SystemExit, match="persona file"):
         load_persona("Pepper", "English", tmp_path / "nope.txt")
+
+
+def test_knowledge_is_appended_after_the_persona(tmp_path) -> None:
+    persona, knowledge = tmp_path / "persona.txt", tmp_path / "knowledge.txt"
+    persona.write_text("You are {name}.\n", encoding="utf-8")
+    knowledge.write_text("\nThe workshop starts at 10:30.\n", encoding="utf-8")
+    assert system_instruction("Pepper", "German", persona, knowledge) == "You are Pepper.\n\nThe workshop starts at 10:30."
+    # optional: without the file the persona is the whole instruction
+    assert system_instruction("Pepper", "German", persona, tmp_path / "none.txt") == "You are Pepper."
+    assert load_knowledge(tmp_path / "none.txt") == ""
+
+
+def test_shipped_knowledge_covers_the_zukunftstag_slides() -> None:
+    system = system_instruction("Pepper", "German")
+    assert system.startswith(load_persona("Pepper", "German"))
+    for fact in ("CLEAR", "Large Language Model", "814'000", "Applikationsentwickler", "11:25-11:40 Quiz"):
+        assert fact in system, fact
 
 
 async def test_robot_events_reach_the_event_queue() -> None:

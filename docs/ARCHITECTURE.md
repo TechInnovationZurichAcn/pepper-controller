@@ -70,6 +70,7 @@ src/pepper_mcp/
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
   gemini_live.py    `pepper-mcp-gemini`: Gemini Live speech-to-speech agent (see 2.2)
 persona.txt         Gemini's system instruction (read at every start)
+knowledge.txt       event knowledge appended to the persona (optional)
 vocabulary.txt      words that bias Gemini's input transcription
 ```
 

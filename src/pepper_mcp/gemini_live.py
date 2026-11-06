@@ -116,6 +116,7 @@ FORWARDED_EVENTS = frozenset(
 PERSONA_FILE = Path(__file__).resolve().parents[2] / "persona.txt"
 # Names and words the transcriber should expect (one per line), next to the persona.
 VOCABULARY_FILE = PERSONA_FILE.parent / "vocabulary.txt"
+KNOWLEDGE_FILE = PERSONA_FILE.parent / "knowledge.txt"
 # NAOqi language names (PEPPER_LANGUAGE) → BCP-47 hints for Gemini's input transcription.
 LANGUAGE_CODES = {
     "German": "de-DE",
@@ -146,6 +147,23 @@ def load_persona(name: str, language: str, path: Path = PERSONA_FILE) -> str:
     except OSError as exc:
         raise SystemExit(f"cannot read the persona file {path}: {exc}") from exc
     return text.replace("{name}", name).replace("{language}", language)
+
+
+def load_knowledge(path: Path = KNOWLEDGE_FILE) -> str:
+    """Background knowledge appended to the persona (e.g. the event's slides). Optional: a
+    missing file adds nothing, so the persona stays usable on its own."""
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+    except OSError as exc:
+        raise SystemExit(f"cannot read the knowledge file {path}: {exc}") from exc
+
+
+def system_instruction(name: str, language: str, persona: Path = PERSONA_FILE,
+                       knowledge: Path = KNOWLEDGE_FILE) -> str:
+    """The persona followed by the knowledge file, if there is one."""
+    return "\n\n".join(t for t in (load_persona(name, language, persona), load_knowledge(knowledge)) if t)
 
 
 def transcription_languages(language: str) -> list[str]:
@@ -555,7 +573,7 @@ class GeminiPepper:
             speaker = await asyncio.to_thread(rt.audio_out.speaker_stream, VOICE_RATE)
             remove_mic = rt.mic.add_consumer(self._on_mic)
             unsubscribe = rt.bus.subscribe("*", self._on_event)
-            system = load_persona(self.args.persona, self.settings.language)
+            system = system_instruction(self.args.persona, self.settings.language)
             log.info("gemini live: %s, %d tools, voice %s", self.args.model, len(declarations), self.args.voice)
             print(
                 f"Pepper is live on {self.args.model} ({len(declarations)} tools), listening on the "

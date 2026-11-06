@@ -40,7 +40,7 @@ must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (f
 - `reflexes/` (subclass `reflexes.base.Reflex`), `preview.py`
   (HTTP side channel), `gemini_live.py`
   (`pepper-mcp-gemini`, Gemini Live on Pepper's own mic/camera/speakers; key `GEMINI_LIVE_KEY` from the git-ignored `.env`;
-  system instruction read from `persona.txt` in the repo root at startup; transcription vocabulary from `vocabulary.txt`).
+  system instruction read from `persona.txt` in the repo root at startup, plus the optional event knowledge in `knowledge.txt`; transcription vocabulary from `vocabulary.txt`).
 
 ## Rules that are easy to break
 
