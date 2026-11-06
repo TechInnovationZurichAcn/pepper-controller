@@ -242,6 +242,11 @@ If a `default via … dev <ETH_DEV>` route shows up anyway, another wired profil
 `nmcli con down "Wired connection N"` and bring `pepper-router` up again. No link light on the
 port means a bad cable or port: swap it before debugging anything else.
 
+**OWC dock:** connect the laptop to the dock through the **USB-C port marked with the laptop
+icon**. Through any other USB-C port the dock's Ethernet never gets a link: the device exists, but
+`ethtool <ETH_DEV>` says `Link detected: no` and `/sys/class/net/<ETH_DEV>/carrier` stays `0`,
+whatever cable or router port you try.
+
 A default route with `metric 1024`, or `resolvectl status <ETH_DEV>` showing the router as DNS
 server with `Default Route: yes`, means **`systemd-networkd`** is also configuring the cable
 (`systemctl is-active systemd-networkd`, files in `/etc/systemd/network/`). Either stop it from
@@ -298,8 +303,9 @@ and check
 `ping` / `nc -zv <PEPPER_IP> 9559` against the **Wi-Fi** address. The Ethernet IP is no
 longer valid once the cable is out.
 
-*Every session after that:* power the router, plug the laptop's cable (`pepper-router`
-comes up by itself; check with `ip route get 1.1.1.1`), power Pepper and press its chest
+*Every session after that:* power the router, plug the laptop's cable (through the OWC dock:
+its laptop-icon USB-C port; `pepper-router` comes up by itself; check with
+`ip route get 1.1.1.1`), power Pepper and press its chest
 button once: it says its current IP. The address comes from the router's DHCP and can change
 between sessions, so ask each time, then:
 
@@ -631,6 +637,7 @@ NAOqi method needs it in `robot/fake.py` too, or the tests and `--fake` break.
 | `ssh/scp failed` in the log, no sound files or tablet page | `openssh` client missing (step 1), or the robot password is not `pepper`: set `PEPPER_SSH_PASSWORD` |
 | `nmcli: command not found` / option C gives Pepper no address | NetworkManager not in use, or `dnsmasq` missing for `ipv4.method shared` (step 7) |
 | Internet drops when the router cable is plugged in | the wired profile took the default route: use `pepper-router` (option B, step B2), check `ip route get 1.1.1.1` says `dev wl…` |
+| Router cable plugged in but no link (`ethtool <ETH_DEV>`: `Link detected: no`) | with the OWC dock, the laptop must be on the dock's USB-C port with the laptop icon (step B3); otherwise swap cable / router LAN port |
 | Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step B4 |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot with the hand raised clearly above the shoulder |
 | Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 12); nothing else answers |
