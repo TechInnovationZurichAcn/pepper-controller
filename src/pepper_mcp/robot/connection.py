@@ -2,7 +2,8 @@
 
 Why a ``qi.Application`` and not a bare ``qi.Session``: the robot has to call back into
 this process (audio buffers via ``processRemote``, ALMemory signals). That only works
-when our session *listens* on a TCP endpoint, which ``--qi-listen-url`` provides.
+when our session *listens* on a TCP endpoint, which the ``--qi-listen-url`` argument passed
+to ``qi.Application`` provides.
 
 The class also hides the two qi conventions the rest of the code relies on:
 
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -58,31 +60,49 @@ class RobotConnection:
         args = ["pepper-mcp", f"--qi-url={self.url}"]
         if self.listen_url:
             args.append(f"--qi-listen-url={self.listen_url}")
+        # libqi allows one qi.Application per process (a second one raises "Application was
+        # already initialized") and a failed Application.start() cannot be retried, so wait
+        # for NAOqi with throwaway sessions first and create the Application only once.
         deadline = time.monotonic() + timeout_s
-        last_exc: Exception | None = None
+        attempts = 0
         while True:
+            attempts += 1
+            probe = qi.Session()
             try:
-                self._app = qi.Application(args)
-                self._app.start()
-                self._session = self._app.session
+                probe.connect(self.url)
                 break
             except Exception as exc:  # qi raises RuntimeError on connection failure
-                last_exc = exc
-                self._app = None
                 if time.monotonic() >= deadline:
-                    raise RobotError(
-                        f"cannot reach NAOqi at {self.url}: {exc}. Same Wi-Fi? Right IP? "
-                        "Port 9559 blocked by client isolation?"
-                    ) from exc
+                    raise RobotError(self._unreachable(exc)) from exc
                 time.sleep(1.0)
+            finally:
+                try:
+                    probe.close()
+                except Exception:
+                    pass
+        try:
+            self._app = qi.Application(args)
+            self._app.start()
+            self._session = self._app.session
+        except Exception as exc:
+            self._app = None
+            raise RobotError(self._unreachable(exc)) from exc
         self.connected_at = time.time()
         try:
             self._session.disconnected.connect(self._handle_disconnected)
         except Exception as exc:  # pragma: no cover - depends on qi build
             log.debug("could not hook disconnected signal: %s", exc)
         log.info("connected to NAOqi at %s (listening on %s)", self.url, self.endpoints())
-        if last_exc:
-            log.info("connected after retry (%s)", last_exc)
+        if attempts > 1:
+            log.info("connected after %d attempts", attempts)
+
+    def _unreachable(self, exc: Exception) -> str:
+        msg = (f"cannot reach NAOqi at {self.url}: {exc}. Pepper booted? Right IP (press the chest "
+               "button)? Same network? Port 9559 blocked by client isolation?")
+        if sys.platform == "darwin":
+            msg += (" On macOS also allow your terminal app under System Settings → Privacy & "
+                    "Security → Local Network, then restart the terminal.")
+        return msg
 
     def close(self) -> None:
         with self._lock:
