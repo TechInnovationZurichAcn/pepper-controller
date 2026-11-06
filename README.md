@@ -34,12 +34,14 @@ This branch contains only the server and its voice agent. The keyboard teleop li
 ## Quick start (everything already set up)
 
 ```bash
-cd pepper-controller && source .venv/bin/activate     # the cloned repo + its venv (step 3)
 # 1. power the router, plug the laptop's Ethernet cable into it
-# 2. close Pepper's charging hatch, power Pepper on, press the chest button once → it says its IP
-ping -c 2 <PEPPER_IP> && nc -zv <PEPPER_IP> 9559
-pepper-mcp-verify --ip <PEPPER_IP> --no-move          # optional sanity check
-pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
+# 2. close Pepper's charging hatch, power Pepper on, wait ~3 min,
+#    press the chest button once → it says its IP
+cd pepper-controller && source .venv/bin/activate     # the cloned repo + its venv (step 3)
+export PEPPER_IP=192.168.178.25                       # the IP Pepper just said
+ping -c 2 "$PEPPER_IP" && nc -zv "$PEPPER_IP" 9559
+pepper-mcp-verify --ip "$PEPPER_IP" --no-move         # optional sanity check
+pepper-mcp-gemini --ip "$PEPPER_IP" --preview-port 8765 --liveliness off
 ```
 
 New laptop? Do **Part 1** and **Part 2** once. New router? Redo **Part 2** and step 10.
@@ -56,6 +58,26 @@ Pepper has its own router (no internet needed). The laptop is plugged into that 
 **Ethernet cable**, and keeps using its normal Wi-Fi for the internet (Gemini runs in the cloud).
 Pepper itself joins the router's Wi-Fi. Every step below has a **Linux** and a **macOS** part
 where the two differ; do only the one for your machine.
+
+**All steps at a glance:**
+
+| Part | Step | What | How often |
+|---|---|---|---|
+| 1 Install | [1](#1-what-you-need) | Check you have everything | once |
+| | [2](#2-system-packages) | Install `git`, `uv`, `nmap` | once per laptop |
+| | [3](#3-clone-the-repo-and-create-the-virtual-environment) | Clone the repo, create `.venv`, install | once per laptop |
+| | [4](#4-add-the-gemini-api-key) | Put the Gemini key in `.env` | once per laptop |
+| | [5](#5-test-without-the-robot) | Test with the fake robot | once per laptop |
+| 2 Network | [6](#6-connect-the-laptop-to-the-router-by-ethernet) | Cable to the router, internet stays on Wi-Fi | once per laptop |
+| | [7](#7-set-up-the-router) | Router Wi-Fi for Pepper, isolation off | once per router |
+| | [8](#8-let-the-robot-through-the-laptops-firewall) | Firewall / macOS Local Network | once per laptop |
+| 3 Pepper | [9](#9-power-on) | Power Pepper on | every session |
+| | [10](#10-first-time-only-put-pepper-on-the-routers-wi-fi) | Put Pepper on the router's Wi-Fi | once per router |
+| | [11](#11-get-peppers-ip-and-check-the-connection) | Get Pepper's IP, `ping` it | every session |
+| | [12](#12-hardware-checklist) | `pepper-mcp-verify` | first time, or when something is off |
+| | [13](#13-start-gemini-live) | `pepper-mcp-gemini` | every session |
+| | [14](#14-watch-and-test-it) | Dashboard and first tests | – |
+| | [15](#15-shut-down) | Stop and shut down | every session |
 
 ---
 
@@ -95,10 +117,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh     # uv, into ~/.local/bin
 source ~/.local/bin/env                             # or open a new terminal
 ```
 
-**macOS** (needs [Homebrew](https://brew.sh); `ssh`, `nc` and `ping` ship with macOS)
+**macOS** (`ssh`, `nc` and `ping` ship with macOS)
 
 ```bash
-xcode-select --install          # git; skip if `git --version` already works
+xcode-select --install          # git and compilers; skip if `git --version` already works
+# Homebrew, if `brew --version` fails (https://brew.sh):
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile && eval "$(/opt/homebrew/bin/brew shellenv)"
 brew install uv nmap
 ```
 
@@ -109,7 +134,7 @@ Check: `git --version` and `uv --version` both print a version.
 The repo does **not** contain a `.venv` folder: you create it here, once, after cloning.
 
 ```bash
-git clone -b mcp-server https://github.com/Maelwalser/pepper-controller.git
+git clone -b mcp-server https://github.com/TechInnovationZurichAcn/pepper-controller.git
 cd pepper-controller
 uv venv --python 3.12 .venv          # creates .venv/ (downloads Python 3.12 if needed)
 source .venv/bin/activate            # your prompt now starts with (pepper-controller) or (.venv)
@@ -136,7 +161,7 @@ Only the key is read from `.env`. Other settings are flags or exported `PEPPER_*
 ### 5. Test without the robot
 
 ```bash
-pytest -q                                                 # whole test suite, fake robot
+pytest -q                                                 # whole test suite, fake robot (~1–2 min)
 pepper-mcp-gemini --fake --preview-port 8765              # fake robot, real Gemini session
 ```
 
@@ -151,24 +176,12 @@ Do this once per laptop and router. The robot opens connections **back to** the 
 (microphone audio, events), so the router must not isolate its clients, and the laptop's
 firewall must let the robot in.
 
-### 6. Set up the router (once)
+### 6. Connect the laptop to the router by Ethernet
 
-1. Power the router. Plug the laptop's Ethernet cable into one of its **LAN** ports (not
-   WAN / Internet).
-2. Open its admin page in a browser (address and login are on the label, e.g.
-   `192.168.178.1` for a FRITZ!Box, otherwise usually `192.168.0.1` / `192.168.1.1`).
-3. Set a Wi-Fi name and a WPA2 password for Pepper (2.4 GHz is the safe choice).
-4. Turn **off** "AP isolation" / "client isolation", and do not use the guest network.
-5. Its LAN subnet must not overlap your normal Wi-Fi's (a `192.168.x.0/24` is usually fine).
-6. Optional: once Pepper shows up in the DHCP client list (step 10), add a reservation so its
-   IP stays the same.
-
-**Do not join the laptop's Wi-Fi to this router.** The laptop talks to it only over the cable;
-its Wi-Fi stays on the normal network for the internet.
-
-### 7. Keep the internet on Wi-Fi while the cable is plugged in
-
-The router has no internet, so the laptop must use the cable **only** for the router's subnet.
+The router has no internet, so the laptop must use the cable **only** to reach the router and
+Pepper, and keep sending everything else over Wi-Fi. Set this up **before** plugging the cable
+in. Do **not** join the laptop's Wi-Fi to Pepper's router: its Wi-Fi stays on your normal
+network.
 
 **Linux** (NetworkManager, the default on Ubuntu Desktop and most Arch desktops). Create a
 profile that takes an address from the router but never its default route or DNS:
@@ -180,14 +193,15 @@ nmcli con add type ethernet con-name pepper-router \
 ```
 
 It has no interface name, so it works with any Ethernet port or USB adapter, and its priority
-beats the automatic "Wired connection N" profiles. Then check:
+beats the automatic "Wired connection N" profiles. Now power the router, plug the cable into one
+of its **LAN** ports (not WAN / Internet) and check:
 
 ```bash
 ip -br link                                  # the Ethernet device that is UP, e.g. enp3s0 / enx…
 nmcli con up pepper-router ifname <ETH_DEV>  # usually already up on its own
 ip -br addr show <ETH_DEV>                   # an address from the router, e.g. 192.168.178.20/24
 ip route get 1.1.1.1                         # → dev wl…   (internet over Wi-Fi)
-ip route get <ROUTER_IP>                     # → dev <ETH_DEV>  (router over the cable)
+ip route get 192.168.178.1                   # the router's address → dev <ETH_DEV>
 ```
 
 If `ip route get 1.1.1.1` says `dev <ETH_DEV>`, another wired profile won: run
@@ -228,21 +242,35 @@ other wired networks this profile also keeps internet on Wi-Fi; there, use
 
 </details>
 
-**macOS.** macOS takes an address from the router by itself when the cable is plugged in. To
-keep the internet on Wi-Fi: *System Settings → Network → ⋯ (bottom of the list) → Set Service
-Order…* and drag **Wi-Fi above** the Ethernet / USB LAN service. Then check:
+**macOS.** Power the router and plug the cable into one of its **LAN** ports (not WAN /
+Internet); macOS takes an address from the router by itself. To keep the internet on Wi-Fi:
+*System Settings → Network → ⋯ (bottom of the list) → Set Service Order…* and drag
+**Wi-Fi above** the Ethernet / USB LAN service. Then check:
 
 ```bash
 networksetup -listallhardwareports   # which enX is Ethernet and which is Wi-Fi
 ipconfig getifaddr <ETH_DEV>         # e.g. en0 on a Mac mini → an address from the router
 route -n get 1.1.1.1                 # interface: must be the Wi-Fi device
-route -n get <ROUTER_IP>             # interface: must be the Ethernet device
+route -n get 192.168.178.1           # the router's address → interface: the Ethernet device
 ```
 
 (Mac mini: `en0` is Ethernet, `en1` Wi-Fi. MacBook: `en0` is Wi-Fi, the adapter is a higher
 `enX`.)
 
-### 8. Let the robot through the laptop's firewall (once)
+The router's address is on its label (FRITZ!Box: `192.168.178.1`; others often `192.168.0.1` or
+`192.168.1.1`); use yours in the `route get` lines.
+
+### 7. Set up the router
+
+Open the router's admin page in a browser (its address and login are on the label), then:
+
+1. Set a Wi-Fi name and a WPA2 password for Pepper (2.4 GHz is the safe choice).
+2. Turn **off** "AP isolation" / "client isolation", and do not use the guest network.
+3. Its LAN subnet must not overlap your normal Wi-Fi's (a `192.168.x.0/24` is usually fine).
+4. Optional: once Pepper shows up in the DHCP client list (step 10), add a reservation so its
+   IP stays the same.
+
+### 8. Let the robot through the laptop's firewall
 
 The robot calls back into the laptop on a random TCP port (audio stream, events). A firewall
 that blocks it makes hearing **fail silently**. Allow the router's whole subnet once, so it
@@ -259,7 +287,7 @@ sudo firewall-cmd --state       # "not running" / command not found = nothing to
 | Firewall | Allow the router's subnet | Undo |
 |---|---|---|
 | `ufw` (active) | `sudo ufw allow from 192.168.178.0/24` | `sudo ufw status numbered`, then `sudo ufw delete <n>` |
-| `firewalld` | `sudo firewall-cmd --zone=trusted --add-source=192.168.178.0/24` (add `--permanent` and `--reload` to keep it after a reboot) | `--remove-source=` instead of `--add-source=` |
+| `firewalld` | `sudo firewall-cmd --permanent --zone=trusted --add-source=192.168.178.0/24 && sudo firewall-cmd --reload` | the same with `--remove-source=` |
 | none (default on a fresh Arch install) | nothing to do | – |
 
 Raw `nftables`/`iptables`: allow inbound TCP from the subnet, or pin the callback port with
@@ -324,15 +352,16 @@ Skip this if Pepper already knows the router (pressing the chest button tells yo
 router's subnet). Pepper remembers the network and rejoins it on every boot.
 
 1. Plug Pepper's head Ethernet port into another LAN port of the router.
-2. Find its wired IP: press the chest button, or look in the router's client list, or
+2. Find its wired IP (`<WIRED_IP>` below): press the chest button, or look in the router's client list, or
    `nmap -p 9559 --open <subnet>` (e.g. `192.168.178.0/24`).
-3. Join the Wi-Fi with connman over SSH (password `pepper` unless it was changed).
+3. Join the Wi-Fi with connman over SSH (password `pepper` unless it was changed; type `yes`
+   the first time SSH asks about the host key).
    **WPS push-button** avoids typing the key (FRITZ!Box: press *Connect/WPS* ~1 s until the
    WLAN LED blinks; you then have ~2 minutes):
 
    ```bash
-   ssh nao@<PEPPER_IP> connmanctl services     # find the router's id: wifi_…_managed_psk
-   ssh -t nao@<PEPPER_IP> connmanctl           # interactive shell on the robot, then:
+   ssh nao@<WIRED_IP> connmanctl services      # find the router's id: wifi_…_managed_psk
+   ssh -t nao@<WIRED_IP> connmanctl            # interactive shell on the robot, then:
    connmanctl> agent on
    connmanctl> connect wifi_…_managed_psk
    Passphrase?                                 # WPS: press the router button, then just Enter
@@ -345,7 +374,7 @@ router's subnet). Pepper remembers the network and rejoins it on every boot.
    `invalid-key` means the router rejected the key: use the *Wi-Fi network key* from the label
    (FRITZ!Box: "WLAN-Netzwerkschlüssel"), not the admin password, or use WPS. "In progress"
    means an earlier attempt is still pending: `disconnect <id>` first. The robot's web page
-   (`http://<PEPPER_IP>/` → *Network settings*, user `nao`) or the tablet's settings work too.
+   (`http://<WIRED_IP>/` → *Network settings*, user `nao`) or the tablet's settings work too.
 4. Unplug Pepper's cable. Its Wi-Fi IP is **different** from the wired one: press the chest
    button again (or `ssh nao@<WIRED_IP> ip -4 -o addr show wlan0` before unplugging).
 
@@ -354,29 +383,34 @@ router's subnet). Pepper remembers the network and rejoins it on every boot.
 Press the chest button once: Pepper says "… my internet address is 192.168.178.25". The router
 hands it out by DHCP, so it can change between sessions: ask each time. (Pepper says it is
 not connected → step 10.) Other ways: the router's client list, `nmap -p 9559 --open <subnet>`,
-or Zeroconf (`avahi-browse -rt _naoqi._tcp` on Linux, `dns-sd -B _naoqi._tcp` on macOS).
+or Zeroconf (`dns-sd -B _naoqi._tcp` on macOS; on Linux `avahi-browse -rt _naoqi._tcp`, which
+needs `sudo systemctl enable --now avahi-daemon` once).
+
+Put the IP into a variable, so the commands below can be copied as they are (do this in every
+new terminal, after `source .venv/bin/activate`):
 
 ```bash
-export PEPPER_IP=192.168.178.25     # optional: pepper-mcp-gemini then needs no --ip
-ping -c 3 <PEPPER_IP>
-nc -zv <PEPPER_IP> 9559             # NAOqi port
+export PEPPER_IP=192.168.178.25     # the IP Pepper said
+ping -c 3 "$PEPPER_IP"
+nc -zv "$PEPPER_IP" 9559            # NAOqi port: must say succeeded / open
 ```
 
-* `ping` fails → wrong IP (ask Pepper again), or the cable / step 7 is not right.
-* `ping` works but port 9559 does not → client isolation is still on in the router (step 6).
+* `ping` fails → wrong IP (ask Pepper again), or the cable / step 6 is not right.
+* `ping` works but port 9559 does not → client isolation is still on in the router (step 7).
 
 ### 12. Hardware checklist
 
-Activate the venv first (`source .venv/bin/activate` in the repo root, step 3). Clear ~1 m in
-front of Pepper (the last check drives the base forward for 0.3 s), then:
+Make sure no `pepper-mcp-gemini` is running (only one program can use Pepper at a time). Clear
+~1 m in front of Pepper (one check drives the base forward for 0.3 s), then:
 
 ```bash
-pepper-mcp-verify --ip <PEPPER_IP>        # --no-move skips the drive, --quiet skips speech
+pepper-mcp-verify --ip "$PEPPER_IP"       # --no-move skips the drive, --quiet skips speech
 ```
 
 You want `[OK ]` on at least `connect`, `tts`, `audio_callback` (≈ 6 callbacks/s), `camera`
 and `move`. A `FAIL` on `audio_callback` almost always means the firewall (step 8) or client
-isolation (step 6). What every check proves and its fallback:
+isolation (step 7); if it says `"PepperMcpAudio" … is already registered`, a
+`pepper-mcp-gemini` is still running somewhere: stop it first. What every check proves and its fallback:
 [`docs/ROBOT_VERIFICATION.md`](docs/ROBOT_VERIFICATION.md).
 
 Playing sound files and showing pages on the tablet copies files onto the robot over SSH
@@ -385,18 +419,35 @@ also starts a small relay on the head over SSH, because the tablet cannot reach 
 directly. If your robot's password was changed, export `PEPPER_SSH_PASSWORD=<password>` (and
 `PEPPER_SSH_USER` if needed) before starting the server.
 
-macOS: the full robot checklist has so far only been run from Linux.
+Tested from Linux laptops and a Mac mini (macOS, with `--no-move --quiet`).
 
 ### 13. Start Gemini Live
 
 ```bash
-pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off   # key from step 4
+pepper-mcp-gemini --ip "$PEPPER_IP" --preview-port 8765 --liveliness off   # key from step 4
 ```
 
-This is the one way to run the server. It owns the robot (only one process may: stop any other
-`pepper-mcp-gemini` first) and prints `[heard]`, `[said]` and `[tool]` lines. On start it wakes
-Pepper, turns autonomous life off, applies the liveliness preset and lowers the base safety
-distances to 0.15 m / 0.05 m.
+Pepper wakes up, stands, and after a few seconds the terminal says `Pepper is live …`. Then
+just talk to it. The terminal shows `[heard]` (what Gemini understood), `[said]` (its answer)
+and `[tool]` (body actions). `Ctrl-C` stops it (step 15).
+
+Good to know:
+
+* **Talk after Pepper has finished.** The mic sits next to the speakers, so it is muted while
+  Pepper makes any sound; interrupting mid-sentence does not work. Stand within about 1 m.
+* **Persona:** what Pepper says and how it behaves comes from [`persona.txt`](persona.txt)
+  (plus [`knowledge.txt`](knowledge.txt)). The shipped one is German and written for one event
+  (children visiting an office): **adapt it before using Pepper elsewhere**
+  ([Persona, language and vocabulary](#persona-language-and-vocabulary)).
+* **One program at a time:** stop any other `pepper-mcp-gemini` (and don't run
+  `pepper-mcp-verify`) while it runs.
+* Model, voice and every other option: [Configuration](#configuration).
+
+<details>
+<summary>What it does in detail</summary>
+
+On start it wakes Pepper, turns autonomous life off, applies the liveliness preset and lowers
+the base safety distances to 0.15 m / 0.05 m (restored on shutdown).
 
 A speech-to-speech model hears Pepper's own head microphone (front, or the next working one),
 watches its head camera (1 fps), answers through Pepper's loudspeakers and drives the body
@@ -411,16 +462,9 @@ narrating what it sensed or which tool it used. Other reflexes (attention, touch
 moved the body and are not reported. Nothing but Gemini speaks: reflexes and gestures stay silent
 in NAOqi's voice, the `greet` reflex is off (Gemini greets), BasicAwareness is off (liveliness
 `calm`) and NAOqi's push recovery, which says "ouch" when Pepper is pushed, is turned off while
-the server runs. Nothing on the laptop is used except the network.
+the server runs. The free API tier has no Google Search quota, so search is not enabled.
 
-What Gemini says and how it behaves comes from [`persona.txt`](persona.txt): the shipped one is
-German and written for a specific event (children visiting an office), so **adapt it before you
-use Pepper elsewhere** (see [Persona, language and vocabulary](#persona-language-and-vocabulary)).
-Model, voice and the other Gemini options are in the [Configuration](#configuration) table.
-Pepper's mic sits next to its speakers and has no echo cancellation, so it is
-muted while Pepper makes any sound (Gemini's voice, NAOqi speech from reflexes, gestures with
-sounds, dances with music for their whole length) plus a short tail: talk after Pepper finishes; interrupting mid-sentence is not possible.
-The free API tier has no Google Search quota, so search is not enabled.
+</details>
 
 ### 14. Watch and test it
 
@@ -448,7 +492,7 @@ The free API tier has no Google Search quota, so search is not enabled.
    the base, restores the NAOqi safety distances and autonomous life, and releases camera and
    microphone. Only `kill -9` skips this.
 2. Hold the chest button ~3 s until Pepper says goodbye and goes to rest; wait for the
-   lights to go off before closing the charging hatch and plugging in the charger.
+   lights to go off before opening the charging hatch and plugging in the charger.
 3. Unplug the laptop's cable from the router whenever you like; the internet stays on Wi-Fi.
 
 If `pepper-mcp-gemini` was killed instead of stopped, the robot keeps the lowered safety distances
@@ -606,17 +650,18 @@ NAOqi method needs it in `robot/fake.py` too, or the tests and `--fake` break.
 | `qi` wheel not found / `No solution found … qi` | venv on Python 3.13+: `rm -rf .venv && uv venv --python 3.12 .venv`; or the machine is not x86_64 Linux / Apple-silicon macOS (no `qi` wheels for ARM Linux or Intel Macs) |
 | macOS: `No route to host` / `cannot reach NAOqi` although `ping` from another app works | Local Network permission for the terminal app (step 8, macOS) |
 | `pepper-mcp-gemini` / `pepper-mcp-verify`: `command not found`, or no `.venv` folder | the venv is not in the repo, you create it once (step 3): `uv venv --python 3.12 .venv && source .venv/bin/activate && uv pip install -e ".[all,dev]"` in the repo root. Already created: it is only not active in this terminal, run `source .venv/bin/activate` |
+| `audio_callback` FAIL with `"PepperMcpAudio" … is already registered`, or `pepper-mcp-gemini` cannot get the mic | another `pepper-mcp-gemini` (maybe in another terminal or over SSH) still owns Pepper: stop it with `Ctrl-C`, or `pkill -INT -f pepper-mcp-gemini` |
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
 | Pepper says it is not connected | it is not on the router's Wi-Fi: step 10 |
-| connects, but Gemini hears nothing | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 8; router isolation (step 6) |
+| connects, but Gemini hears nothing | `pepper-mcp-verify` → `audio_callback` must show ≈ 6 callbacks/s; firewall rule from step 8; router isolation (step 7) |
 | Pepper does not drive, turn or follow / "charging hatch is open" / `motion.blocked` | **close the charging hatch** (most common: NAOqi locks the wheels while it is open), unplug the charger, or something is inside the safety distance; lower it with `--safety-front` or the `set_safety` tool when the space is clear |
 | motors limp, nothing moves | emergency stop at the back of the neck is pressed: release it, then `wake_up` |
 | head snaps back after moves | `set_liveliness off`, or start with `--liveliness off` |
 | tic-tac-toe (or another laptop page) shows a blank white page on the tablet | the tablet can only reach the head, through the relay the server starts over SSH: look for `tablet relay disabled` / `did not start` in the log (SSH password, `--preview-port` set?) and restart `pepper-mcp-gemini` |
 | `ssh/scp failed` in the log, no sound files or tablet page | `openssh` client missing (step 1), or the robot password is not `pepper`: set `PEPPER_SSH_PASSWORD` |
-| `nmcli: command not found` | NetworkManager not in use: configure the cable the same way in your network tool (step 7, Linux edge cases) |
-| Internet drops when the router cable is plugged in | the wired profile took the default route: Linux: use the `pepper-router` profile (step 7), check `ip route get 1.1.1.1` says `dev wl…`; macOS: Wi-Fi above Ethernet in the service order (step 7) |
-| Router cable plugged in but no link (`ethtool <ETH_DEV>`: `Link detected: no`) | with the OWC dock, the laptop must be on the dock's USB-C port with the laptop icon (step 7); otherwise swap cable / router LAN port |
+| `nmcli: command not found` | NetworkManager not in use: configure the cable the same way in your network tool (step 6, Linux edge cases) |
+| Internet drops when the router cable is plugged in | the wired profile took the default route: Linux: use the `pepper-router` profile (step 6), check `ip route get 1.1.1.1` says `dev wl…`; macOS: Wi-Fi above Ethernet in the service order (step 6) |
+| Router cable plugged in but no link (`ethtool <ETH_DEV>`: `Link detected: no`) | with the OWC dock, the laptop must be on the dock's USB-C port with the laptop icon (step 6); otherwise swap cable / router LAN port |
 | Pepper unreachable after unplugging its Ethernet | it is now on Wi-Fi with a **different** IP: press the chest button; if it says not connected, redo step 10 |
 | no `person.waving` | `ALWavingDetection` needs a person facing the robot with the hand raised clearly above the shoulder |
 | Pepper does not talk at all | `pepper-mcp-gemini` must be running (step 13); nothing else answers |

@@ -32,7 +32,7 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 | tts | `ALTextToSpeech.say` async future completes, `ALTextToSpeech/TextDone` fires | speech queue falls back to blocking `say` in its own thread |
 | animated_speech | `ALAnimatedSpeech.say` with `bodyLanguageMode=contextual` | `say(animated=False)` |
 | memory_subscriber | `ALMemory.subscriber(...).signal.connect` works | polling watcher (automatic) |
-| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check `--qi-listen-url` and the firewall (README step 8). One mic far below the others = dead mic, `--mic auto` skips it |
+| audio_callback | `processRemote` is called ≈ 6×/s with 2730 samples of 16-bit PCM; `energies` similar on all four mics | check the firewall (README step 8) and `PEPPER_LISTEN_URL`. One mic far below the others = dead mic, `--mic auto` skips it |
 | camera | QVGA RGB frame from top camera in < 100 ms, depth frame from camera 2 | lower fps / resolution |
 | waving | `ALWavingDetection` subscribe + `PeoplePerception/Person/<id>/IsWaving` key | Gemini sees the wave on the camera stream and calls `play_gesture high_five` |
 | animations | `ALBehaviorManager.getInstalledBehaviors()` contains `animations/Stand/...` | curated list in `animation.py` |
