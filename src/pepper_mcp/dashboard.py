@@ -181,6 +181,8 @@ def _stop_gesture(rt: Any, a: dict[str, Any]) -> Any:
     an interrupted timeline leaves the joints wherever the stop caught them."""
     stopped = rt.gestures.stop_all()
     rt.animations.stop()
+    if not stopped:  # it ended on its own just before the press: don't snap the robot to a posture
+        return {"gestures_stopped": 0, "reset": None}
 
     def _reset() -> bool:
         if not rt.gestures.wait_idle(RESET_WAIT_S):

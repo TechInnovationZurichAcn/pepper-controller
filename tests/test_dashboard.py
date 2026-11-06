@@ -244,3 +244,11 @@ def test_pressing_the_playing_dance_stops_it_and_resets_the_arms(runtime, fake_r
     assert runtime.gestures.dancing() is None
     assert dashboard.state(runtime)["playing"] == []
     dashboard.run_action(runtime, "gesture", {"name": "wave"})  # unlocked again
+
+
+def test_stop_gesture_with_nothing_playing_leaves_the_posture_alone(runtime, fake_robot) -> None:  # type: ignore[no-untyped-def]
+    posture = fake_robot.services["ALRobotPosture"]
+    before = posture.count("goToPosture")
+    assert dashboard.run_action(runtime, "stop_gesture", {}) == {"gestures_stopped": 0, "reset": None}
+    time.sleep(0.1)
+    assert posture.count("goToPosture") == before

@@ -195,7 +195,8 @@ A running dance (any gesture tagged `dance`: the dances above, the `dance` group
 owns the robot until it ends or is stopped (`stop_motion`, `stop_animation`, the dashboard):
 `play_gesture` is refused instead of preempting it, background gestures skip, reflexes stay
 quiet, and `pepper-mcp-gemini` mutes the mic, drops Gemini's voice, holds event notes and
-answers every tool call with an error until the dance is over.
+answers every tool call except the stop tools (`stop_motion`, `stop_animation`, `stop_audio`,
+`stop_speaking`, `stop_navigation`) with an error until the dance is over.
 
 Dance music is uploaded to the robot over SSH on first use (a few seconds), preloaded and started
 on the beat at a volume of at least 70 (the previous volume comes back afterwards); without SSH or
@@ -420,7 +421,7 @@ MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a su
   `liveliness {preset}`, `ability {name, enabled}`,
   `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
   `stop_animation`, `stop_gesture` (stops the running gesture or dance and its music, then
-  returns to StandInit; the dashboard sends it when a playing gesture button is pressed again),
+  returns to StandInit if something was running; the dashboard sends it when a playing gesture button is pressed again),
   `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,
   `say {text}`, `stop_speaking`, `volume {level}`, `mood {mood}`, `camera {camera, enabled}`,
   `mic {enabled}` (false mutes: the voice agent gets silence until it is switched back on).

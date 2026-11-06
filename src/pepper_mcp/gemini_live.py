@@ -86,6 +86,8 @@ SOUND_TOOLS = frozenset({"play_audio", "play_sine", "run_behavior"})
 # the bridge then asks the gesture registry (dances, clown_dance, the "dance" group…).
 MUSIC_GESTURES = frozenset({"clown_dance"})
 DANCE_CHECK_S = 0.25
+# Stop tools stay allowed during a dance: CLAUDE.md requires stop_motion to always work.
+DANCE_ALLOWED_TOOLS = frozenset({"stop_motion", "stop_animation", "stop_audio", "stop_speaking", "stop_navigation"})
 # A background action's result goes back SILENT only if the model spoke in the turn that called
 # it; otherwise the model is waiting for the result before it answers and must get a turn.
 SPEAK_WAIT_S = 0.8
@@ -697,6 +699,7 @@ class GeminiPepper:
         """
         utterance_id: str | None = None
         started = 0.0
+        cut = False  # this reply was already cut off for a dance
         while True:
             try:
                 # Wake up at least every DANCE_CHECK_S mid-reply: a dance started meanwhile cuts
@@ -705,10 +708,12 @@ class GeminiPepper:
                 chunk = self.voice_q.get(timeout=wait)
             except queue.Empty:
                 if speaker.remaining() > 0:
-                    if self._dancing():
-                        speaker.cancel()
+                    if not cut and self._dancing():
+                        cut = True
+                        speaker.cancel()  # what the robot already has (<= LEAD_S) still plays out
                         self.gate.finish("voice")
                     continue
+                cut = False
                 # the reply has played out
                 self._publish(
                     "tts.finished",
@@ -717,8 +722,10 @@ class GeminiPepper:
                 utterance_id = None
                 continue
             if self._dancing():  # cut Gemini off: the dance has the speakers
-                speaker.cancel()
-                self.gate.finish("voice")
+                if not cut:
+                    cut = True
+                    speaker.cancel()
+                    self.gate.finish("voice")
                 continue
             if utterance_id is None:
                 self._voice_n += 1
@@ -859,7 +866,7 @@ class GeminiPepper:
             if sound:
                 self.gate.start(pending, max_s=10.0)
             try:
-                dance = self._dancing()
+                dance = None if fc.name in DANCE_ALLOWED_TOOLS else self._dancing()
                 if dance is not None:
                     response = {"error": f"Pepper is dancing {dance}; wait for it to finish (task.finished)"}
                 elif fc.name == "camera_snapshot":

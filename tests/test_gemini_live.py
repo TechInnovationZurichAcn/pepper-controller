@@ -836,3 +836,21 @@ async def test_a_dance_is_never_interrupted_by_listening_talking_or_tools(runtim
     bridge._play([b"\x01\x00" * 160])
     await asyncio.sleep(0.2)
     assert speaker.written == [] and speaker.cancelled == 1  # Gemini's voice is dropped
+
+
+async def test_stop_tools_still_work_during_a_dance(runtime) -> None:  # type: ignore[no-untyped-def]
+    from types import SimpleNamespace
+
+    bridge = _bridge()
+    bridge.rt = runtime
+    runtime.gestures.dancing = lambda: "dance_relax"  # type: ignore[method-assign]
+    called: list[str] = []
+
+    class Recording:
+        async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+            called.append(name)
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text="{}")], is_error=False,
+                                   structured_content=None)
+
+    await bridge._run_tools(RecordingSession(), Recording(), runtime, [Call("stop_motion", {})])
+    assert called == ["stop_motion"]
