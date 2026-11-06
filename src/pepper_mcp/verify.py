@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -38,7 +39,7 @@ def main(argv: list[str] | None = None) -> None:
 
     conn = RobotConnection(args.ip, args.port)
     if check("connect", lambda: (conn.connect(), conn.endpoints())[1]) is None:
-        sys.exit(1)
+        _exit(1)
     services = check("services", conn.service_names) or []
     needed = ["ALMotion", "ALRobotPosture", "ALTextToSpeech", "ALAnimatedSpeech", "ALAnimationPlayer",
               "ALVideoDevice", "ALAudioDevice", "ALMemory", "ALPeoplePerception", "ALWavingDetection",
@@ -148,7 +149,17 @@ def main(argv: list[str] | None = None) -> None:
     rt.stop()
     failed = [n for n, ok, _ in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed" + (f"; failed: {failed}" if failed else ""))
-    sys.exit(1 if failed else 0)
+    _exit(1 if failed else 0)
+
+
+def _exit(code: int) -> None:
+    # libqi's native teardown can deadlock the interpreter exit (a qi worker waits for the GIL
+    # while the main thread joins it; seen on macOS after every check had passed). The robot is
+    # already released here, so skip that teardown, as pepper-mcp-gemini does.
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == "__main__":
