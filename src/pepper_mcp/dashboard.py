@@ -77,6 +77,8 @@ def state(rt: Any) -> dict[str, Any]:
     # their groups (greeting, attract…) and the dances are listed instead.
     out["gestures"] = [{"name": g["name"], "description": g.get("description", "")}
                        for g in (_safe("gestures", rt.gestures.list) or []) if "library" not in g.get("tags", [])]
+    out["playing"] = _safe("playing", rt.gestures.active) or []
+    out["dancing"] = _safe("dancing", rt.gestures.dancing)
     out["transcript"] = list(rt.transcript)[-8:]
     out["options"] = {"liveliness": sorted(PRESETS),
                       "abilities": list(ABILITIES), "moods": sorted(MOODS), "extractors": sorted(EXTRACTORS),
@@ -113,6 +115,7 @@ def _need(obj: Any, what: str) -> Any:
 
 
 def _base_free(rt: Any) -> None:
+    _not_dancing(rt)
     if rt.tracker and rt.tracker.following:
         raise ActionError("follow person is active and owns the base; turn it off first")
     if rt.navigator and rt.navigator.busy:
@@ -159,8 +162,33 @@ def _gesture(rt: Any, a: dict[str, Any]) -> Any:
     if not isinstance(name, str):
         raise ActionError("'name' must be a gesture name")
     rt.gestures.get(name)
+    _not_dancing(rt)
     task = rt.tasks.run("gesture", name, lambda: rt.gestures.play(name, {}), cancel=rt.gestures.stop_all)
     return task.to_dict()
+
+
+def _not_dancing(rt: Any) -> None:
+    dance = rt.gestures.dancing()
+    if dance is not None:
+        raise ActionError(f"Pepper is dancing {dance}; press it again (or STOP) to end the dance first")
+
+
+RESET_WAIT_S = 3.0
+
+
+def _stop_gesture(rt: Any, a: dict[str, Any]) -> Any:
+    """Stop the running gesture or dance (and its music), then bring the arms back to StandInit:
+    an interrupted timeline leaves the joints wherever the stop caught them."""
+    stopped = rt.gestures.stop_all()
+    rt.animations.stop()
+
+    def _reset() -> bool:
+        if not rt.gestures.wait_idle(RESET_WAIT_S):
+            log.warning("gesture still running %.0f s after stop; resetting the posture anyway", RESET_WAIT_S)
+        return rt.motion.go_to_posture("StandInit", 0.5)
+
+    task = rt.tasks.run("posture", "reset after gesture", _reset, cancel=rt.motion.stop_all)
+    return {"gestures_stopped": stopped, "reset": task.to_dict()}
 
 
 def _move(rt: Any, a: dict[str, Any]) -> Any:
@@ -180,6 +208,7 @@ def _turn(rt: Any, a: dict[str, Any]) -> Any:
 
 def _look(rt: Any, a: dict[str, Any]) -> Any:
     yaw, pitch = LOOK_DIRECTIONS[_choice(a, "direction", LOOK_DIRECTIONS)]
+    _not_dancing(rt)
     return {k: round(math.degrees(v), 1) for k, v in rt.motion.look(yaw, pitch, 0.3).items()}
 
 
@@ -187,6 +216,7 @@ def _say(rt: Any, a: dict[str, Any]) -> Any:
     text = a.get("text")
     if not isinstance(text, str) or not text.strip():
         raise ActionError("'text' must be a non-empty string")
+    _not_dancing(rt)
     return rt.speech.say(text.strip()[:500], animated=_bool(a, "animated") if "animated" in a else True).to_dict()
 
 
@@ -213,6 +243,7 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "tracking": _tracking,
     "follow": _follow,
     "gesture": _gesture,
+    "stop_gesture": _stop_gesture,
     "stop_animation": lambda rt, a: (rt.animations.stop(), {"gestures_stopped": rt.gestures.stop_all()})[1],
     "move": _move,
     "turn": _turn,

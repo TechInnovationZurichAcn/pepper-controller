@@ -464,3 +464,27 @@ def test_subfolder_asset_is_uploaded_only_once(monkeypatch) -> None:  # type: ig
     name = next(f"dances/{f}" for f in os.listdir(os.path.join(ASSETS, "dances")) if f.endswith(".qianim"))
     assert audio.robot_asset_path(name) == audio.robot_asset_path(name)
     assert len(uploads) == 1
+
+
+def test_a_dance_cannot_be_preempted_until_it_is_stopped() -> None:
+    from pepper_mcp.robot.connection import RobotError
+    from pepper_mcp.robot.events import EventBus
+    from pepper_mcp.robot.fake import FakeConnection, FakeRobot
+    from pepper_mcp.robot.motion import Motion
+
+    motion = Motion(FakeConnection(FakeRobot()), EventBus())
+    reg = GestureRegistry(lambda: GestureContext(motion=motion))
+    t = threading.Thread(target=reg.play, args=("clown_dance", {"duration_s": 30, "music": False}), daemon=True)
+    t.start()
+    deadline = time.monotonic() + 2.0
+    while reg.dancing() is None:
+        assert time.monotonic() < deadline
+        time.sleep(0.01)
+    with pytest.raises(RobotError, match="dancing"):
+        reg.play("wave")
+    assert reg.play("nod", preempt=False) is None  # background reflex gestures just skip
+    assert reg.dancing() == "clown_dance"
+    assert reg.stop_all() == 1
+    assert reg.wait_idle(3.0)
+    t.join(1.0)
+    assert reg.dancing() is None and reg.active() == []

@@ -118,6 +118,8 @@ class AttentionReflex(Reflex):
         rt = self.rt
         leds = rt.leds if self.params["led_moods"] else None
         t, d = event.type, event.data
+        if t in ("sound.located", "person.appeared") and rt.gestures.dancing():
+            return None  # never turn the head or base in the middle of a dance
         if t == "sound.located":
             return self._on_sound(d)
         if t == "speech.started":

@@ -673,6 +673,9 @@ class GestureRegistry:
         with self._lock:
             if not preempt and self._active:
                 return None
+            dance = self._dancing_locked()
+            if dance is not None:
+                raise RobotError(f"Pepper is dancing {dance!r}; stop the dance first")
             previous = list(self._active.values())
             for stop, _ in previous:
                 stop.set()
@@ -690,6 +693,22 @@ class GestureRegistry:
             with self._lock:
                 if self._active.get(name) is entry:
                     del self._active[name]
+
+    def _dancing_locked(self) -> str | None:
+        return next((n for n in self._active if "dance" in getattr(self._gestures.get(n), "tags", ())), None)
+
+    def dancing(self) -> str | None:
+        """The running dance, if any. A dance owns the robot: no other gesture may preempt it, and
+        the voice agent and reflexes stay quiet until it ends or is stopped."""
+        with self._lock:
+            return self._dancing_locked()
+
+    def wait_idle(self, timeout_s: float) -> bool:
+        """Wait until every running gesture has finished its cleanup; False on timeout."""
+        with self._lock:
+            pending = [done for _, done in self._active.values()]
+        deadline = time.monotonic() + timeout_s
+        return all(done.wait(max(0.0, deadline - time.monotonic())) for done in pending)
 
     def stop_all(self) -> int:
         with self._lock:

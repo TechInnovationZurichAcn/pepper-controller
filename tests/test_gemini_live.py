@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import threading
 import time
 from typing import Any
 
@@ -797,3 +798,41 @@ def test_german_is_the_default_language(monkeypatch) -> None:
 
     monkeypatch.delenv("PEPPER_LANGUAGE", raising=False)
     assert Settings().language == "German"
+
+
+async def test_a_dance_is_never_interrupted_by_listening_talking_or_tools(runtime) -> None:  # type: ignore[no-untyped-def]
+    bridge = _bridge()
+    bridge.rt = runtime
+    bridge.loop = asyncio.get_running_loop()
+    runtime.gestures.dancing = lambda: "dance_relax"  # type: ignore[method-assign]
+
+    speech = np.full(320, 1234, np.int16)
+    bridge._on_mic(speech, 16000, 0.0)
+    await asyncio.sleep(0)
+    assert bridge.mic_q.get_nowait() == bytes(640)  # Gemini hears nothing to answer
+
+    class Never:
+        async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+            raise AssertionError("no tool may run during a dance")
+
+    session = RecordingSession()
+    await bridge._run_tools(session, Never(), runtime, [Call("say", {"text": "hi"})])
+    assert "dancing" in session.tool_responses[0].response["error"]
+
+    class Speaker:
+        generation, cancelled, written = 0, 0, []
+
+        def remaining(self) -> float:
+            return 0.0
+
+        def cancel(self) -> None:
+            self.cancelled += 1
+
+        def write(self, chunk: bytes, generation: int) -> None:
+            self.written.append(chunk)
+
+    speaker = Speaker()
+    threading.Thread(target=bridge._play_forever, args=(speaker,), daemon=True).start()
+    bridge._play([b"\x01\x00" * 160])
+    await asyncio.sleep(0.2)
+    assert speaker.written == [] and speaker.cancelled == 1  # Gemini's voice is dropped

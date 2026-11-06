@@ -72,6 +72,17 @@ section h2 .right{margin-left:auto;text-transform:none;letter-spacing:0}
 .grid-btn{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
 .grid-btn button{text-align:left;padding:8px 10px}
 .grid-btn button small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.grid-btn button{position:relative}
+.grid-btn button.playing{border-color:var(--ok);background:rgba(47,191,113,.14);box-shadow:0 0 0 1px var(--ok) inset}
+.grid-btn button.playing small{color:var(--ok)}
+.grid-btn button .eq{display:none;position:absolute;top:8px;right:8px;gap:2px;align-items:flex-end;height:12px}
+.grid-btn button.playing .eq{display:inline-flex}
+.eq i{width:3px;height:100%;background:var(--ok);border-radius:1px;transform-origin:bottom;animation:eq .9s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:-.3s}.eq i:nth-child(3){animation-delay:-.6s}
+@keyframes eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+.grid-btn button.playing:hover .eq{display:none}
+.grid-btn button .stopico{display:none;position:absolute;top:8px;right:8px;width:11px;height:11px;background:var(--bad);border-radius:2px}
+.grid-btn button.playing:hover .stopico{display:block}
 
 .pads{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:480px){.pads{grid-template-columns:1fr}}
@@ -102,7 +113,7 @@ input[type=range]{flex:1;accent-color:var(--accent)}
 #toast{position:fixed;right:16px;bottom:16px;max-width:min(420px,calc(100vw - 32px));display:flex;flex-direction:column;gap:6px;z-index:10}
 #toast div{background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--accent);padding:8px 12px;border-radius:8px}
 #toast div.err{border-left-color:var(--bad)}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.eq i{animation:none;transform:scaleY(.7)}}
 </style>
 </head>
 <body>
@@ -444,11 +455,30 @@ function renderHearing() {
 
 function renderGestures(list) {
   const box = $("#gestures");
-  if (box.dataset.sig === list.map(g => g.name).join()) return;
-  box.dataset.sig = list.map(g => g.name).join();
-  box.replaceChildren(...list.map(g => h("button", {class: "ctl", title: g.description,
-    onclick: () => act("gesture", {name: g.name}, "Playing " + nice(g.name))},
-    nice(g.name), h("small", {}, g.description))));
+  const sig = list.map(g => g.name).join();
+  if (box.dataset.sig !== sig) {
+    box.dataset.sig = sig;
+    box.replaceChildren(...list.map(g => {
+      const b = h("button", {class: "ctl", title: g.description, "data-name": g.name, "data-desc": g.description,
+        onclick: () => b.classList.contains("playing")
+          ? act("stop_gesture", {}, "Stopped " + nice(g.name) + ", resetting the arms")
+          : act("gesture", {name: g.name}, "Playing " + nice(g.name))},
+        h("span", {class: "eq", "aria-hidden": "true"}, h("i"), h("i"), h("i")),
+        h("span", {class: "stopico", "aria-hidden": "true"}),
+        nice(g.name), h("small", {}, g.description));
+      return b;
+    }));
+  }
+  // A group (e.g. "dance") plays under its own name, so the pressed button lights up.
+  const playing = new Set(S.playing || []);
+  for (const b of box.children) {
+    const on = playing.has(b.dataset.name);
+    if (b.classList.contains("playing") === on) continue;
+    b.classList.toggle("playing", on);
+    b.setAttribute("aria-pressed", String(on));
+    b.title = on ? "Playing: press to stop and reset the arms" : b.dataset.desc;
+    b.lastElementChild.textContent = on ? "playing · press to stop" : b.dataset.desc;
+  }
 }
 
 function renderMoods() {

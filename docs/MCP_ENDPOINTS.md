@@ -191,6 +191,12 @@ back on in `finally`, and `stop_motion` / `stop_animation` interrupt them (and t
 | Single variants | `hello_1..10`, `attract_{left,right}_1..7`, `show_tablet_1..6`, `enumeration_1..4`, `make_space_1..4`, `nice_reaction_1..2`, `sad_reaction_1..2`, `loading_{left,right}_1..4`, `back_to_stand_1..3`, idle ones (`looking_around`, `look_far_left`, `play_with_hand_right`, `motor_sound_left`…) |
 | Dances (whole song, on the spot) | `dance_gangnam_style`, `dance_la_bamba`, `dance_relax`, `dance_walk_this_way`, `dance_asereje`, `dance_knights`, `dance_reed_flutes`, `dance_hungarian`, `dance_dango`, `dance_date` (50 s – 1.8 min, with music), `dance_disco` (16 s, no music) |
 
+A running dance (any gesture tagged `dance`: the dances above, the `dance` group, `clown_dance`)
+owns the robot until it ends or is stopped (`stop_motion`, `stop_animation`, the dashboard):
+`play_gesture` is refused instead of preempting it, background gestures skip, reflexes stay
+quiet, and `pepper-mcp-gemini` mutes the mic, drops Gemini's voice, holds event notes and
+answers every tool call with an error until the dance is over.
+
 Dance music is uploaded to the robot over SSH on first use (a few seconds), preloaded and started
 on the beat at a volume of at least 70 (the previous volume comes back afterwards); without SSH or
 without its `.ogg` file in `assets/dances/` the dance runs silently. A joint a dance only uses later holds
@@ -407,13 +413,17 @@ MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a su
   The tablet itself reaches these URLs through the TCP relay on Pepper's head
   (`robot/tablet_relay.py`), never directly.
 * Dashboard at `/` on the same port: `GET /api/state` (status, reflexes, perception,
-  abilities, cameras, volume, gestures, transcript; `control` says whether this client may act)
+  abilities, cameras, volume, gestures, `playing` (running gestures), `dancing` (the running
+  dance or null), transcript; `control` says whether this client may act)
   and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,
   `reflex {name, enabled}`, `perception {name, enabled}`,
   `liveliness {preset}`, `ability {name, enabled}`,
   `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
-  `stop_animation`, `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,
+  `stop_animation`, `stop_gesture` (stops the running gesture or dance and its music, then
+  returns to StandInit; the dashboard sends it when a playing gesture button is pressed again),
+  `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,
   `say {text}`, `stop_speaking`, `volume {level}`, `mood {mood}`, `camera {camera, enabled}`,
   `mic {enabled}` (false mutes: the voice agent gets silence until it is switched back on).
+  While a dance runs, `gesture`, `say`, `move`, `turn` and `look` are refused.
   Allowed from loopback; other hosts need `--preview-token` sent as `X-Pepper-Token`
   (except `stop`, which any client may send).

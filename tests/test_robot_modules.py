@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import threading
 import time
+from typing import Any
 
 import pytest
 
@@ -567,3 +568,29 @@ def test_person_left_reports_how_long_the_person_was_there(monkeypatch: pytest.M
     assert format_event("person.left", left[5]) is None
     assert format_event("person.left", left[6]) is not None
     rt.bus.shutdown()
+
+
+def test_reflexes_stay_quiet_while_pepper_dances() -> None:
+    from types import SimpleNamespace
+
+    from pepper_mcp.reflexes.base import Reflex
+    from pepper_mcp.robot.events import Event
+
+    fired: list[str] = []
+
+    class Greeter(Reflex):
+        name, triggers = "greeter", ("person.appeared",)
+
+        def react(self, event: Event) -> Any:
+            fired.append(event.type)
+            return None
+
+    dance: list[str | None] = ["dance_relax"]
+    rt = SimpleNamespace(gestures=SimpleNamespace(dancing=lambda: dance[0]), bus=EventBus())
+    reflex = Greeter(rt)
+    event = Event(type="person.appeared", data={})
+    reflex.on_event(event)
+    assert fired == []
+    dance[0] = None
+    reflex.on_event(event)
+    assert fired == ["person.appeared"]

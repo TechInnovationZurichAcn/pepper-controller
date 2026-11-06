@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 import urllib.error
 import urllib.request
 from email.message import Message
@@ -206,3 +207,40 @@ def test_http_dashboard_state_and_action(preview) -> None:  # type: ignore[no-un
 def test_settings_summary_masks_token() -> None:
     rt = Runtime(make_settings(preview_token="s3cret"), FakeConnection(FakeRobot()))
     assert rt.settings.summary()["preview_token"] == "***"
+
+
+def _start_dance(rt) -> str:  # type: ignore[no-untyped-def]
+    # Silent: the music would first be copied to the (fake) robot over scp.
+    rt.tasks.run("gesture", "clown_dance", lambda: rt.gestures.play("clown_dance", {"music": False}))
+    deadline = time.monotonic() + 2.0
+    while rt.gestures.dancing() is None:
+        assert time.monotonic() < deadline, "the dance never started"
+        time.sleep(0.01)
+    return "clown_dance"
+
+
+def test_dance_shows_as_playing_and_locks_out_other_actions(runtime) -> None:  # type: ignore[no-untyped-def]
+    dance = _start_dance(runtime)
+    st = dashboard.state(runtime)
+    assert st["dancing"] == dance and dance in st["playing"]
+    for name, args in (("gesture", {"name": "wave"}), ("say", {"text": "hi"}), ("move", {"vx": 0.3}),
+                       ("turn", {"degrees": 90}), ("look", {"direction": "left"})):
+        with pytest.raises(dashboard.ActionError, match="dancing"):
+            dashboard.run_action(runtime, name, args)
+    assert runtime.gestures.dancing() == dance  # still dancing
+
+
+def test_pressing_the_playing_dance_stops_it_and_resets_the_arms(runtime, fake_robot) -> None:  # type: ignore[no-untyped-def]
+    _start_dance(runtime)
+    posture = fake_robot.services["ALRobotPosture"]
+    before = posture.count("goToPosture")
+    out = dashboard.run_action(runtime, "stop_gesture", {})
+    assert out["gestures_stopped"] == 1
+    deadline = time.monotonic() + 5.0
+    while posture.count("goToPosture") == before:
+        assert time.monotonic() < deadline, "arms were never reset"
+        time.sleep(0.02)
+    assert posture.last("goToPosture")[0] == "StandInit"
+    assert runtime.gestures.dancing() is None
+    assert dashboard.state(runtime)["playing"] == []
+    dashboard.run_action(runtime, "gesture", {"name": "wave"})  # unlocked again

@@ -30,7 +30,7 @@ class Reflex:
         self._busy = threading.Lock()
 
     def on_event(self, event: Event) -> None:
-        if not self.enabled:
+        if not self.enabled or self.rt.gestures.dancing():  # a dance is never interrupted
             return
         now = time.time()
         if self.cooldown_s and now - self.last_fired < self.cooldown_s:

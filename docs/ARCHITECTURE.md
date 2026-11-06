@@ -227,7 +227,7 @@ only cross-thread fan-out point and is thread-safe.
 * An explicit `move` / `move_to` / `turn` ends `follow_person` instead of being refused (the
   dashboard still refuses); navigation keeps the base until `stop_navigation`.
 * The preview dashboard's actions are a fixed whitelist with the same limits as the tools
-  (moves clamped to 5 s, refused while follow/navigation own the base). Only loopback clients
+  (moves clamped to 5 s, refused while follow/navigation own the base or a dance runs). Only loopback clients
   may use them unless `--preview-token` is set; JSON-only bodies, an `Origin` check and an
   IP-or-localhost `Host` check keep other web pages (including DNS rebinding) from posting to
   it. `stop` is accepted from any device so every viewer has an emergency stop.

@@ -85,6 +85,7 @@ SOUND_TOOLS = frozenset({"play_audio", "play_sine", "run_behavior"})
 # Gestures that play music through ALAudioPlayer. Only the default until the session starts:
 # the bridge then asks the gesture registry (dances, clown_dance, the "dance" group…).
 MUSIC_GESTURES = frozenset({"clown_dance"})
+DANCE_CHECK_S = 0.25
 # A background action's result goes back SILENT only if the model spoke in the turn that called
 # it; otherwise the model is waiting for the result before it answers and must get a turn.
 SPEAK_WAIT_S = 0.8
@@ -499,12 +500,16 @@ class GeminiPepper:
             return
         # While muted send silence rather than nothing: Gemini's turn detection runs on the
         # stream's timing, and a gap would glue speech before and after the mute together.
-        muted = self.gate.muted() or (self.rt is not None and self.rt.mic_muted)
+        muted = self.gate.muted() or (self.rt is not None and self.rt.mic_muted) or self._dancing()
         data = bytes(len(samples) * 2) if muted else samples.astype("<i2").tobytes()
         try:
             self.loop.call_soon_threadsafe(self._put_nowait, self.mic_q, data)
         except RuntimeError:  # loop closed during shutdown
             pass
+
+    def _dancing(self) -> str | None:
+        """A running dance owns Pepper: no listening, no talking, no tools until it ends."""
+        return self.rt.gestures.dancing() if self.rt is not None else None
 
     def _on_event(self, event: Any) -> None:
         try:
@@ -676,7 +681,7 @@ class GeminiPepper:
         while True:
             note = await self.events_q.get()
             # Don't talk over Pepper: a text note mid-sentence would cut the answer off.
-            while self.gate.muted():
+            while self.gate.muted() or self._dancing():
                 await asyncio.sleep(0.1)
             notes = [note]
             while not self.events_q.empty():
@@ -694,14 +699,26 @@ class GeminiPepper:
         started = 0.0
         while True:
             try:
-                wait = max(speaker.remaining(), 0.05) if utterance_id else None
+                # Wake up at least every DANCE_CHECK_S mid-reply: a dance started meanwhile cuts
+                # off what the speaker still has buffered.
+                wait = min(max(speaker.remaining(), 0.05), DANCE_CHECK_S) if utterance_id else None
                 chunk = self.voice_q.get(timeout=wait)
-            except queue.Empty:  # the reply has played out
+            except queue.Empty:
+                if speaker.remaining() > 0:
+                    if self._dancing():
+                        speaker.cancel()
+                        self.gate.finish("voice")
+                    continue
+                # the reply has played out
                 self._publish(
                     "tts.finished",
                     {"utterance_id": utterance_id, "text": "", "duration_s": round(time.monotonic() - started, 2)},
                 )
                 utterance_id = None
+                continue
+            if self._dancing():  # cut Gemini off: the dance has the speakers
+                speaker.cancel()
+                self.gate.finish("voice")
                 continue
             if utterance_id is None:
                 self._voice_n += 1
@@ -842,7 +859,10 @@ class GeminiPepper:
             if sound:
                 self.gate.start(pending, max_s=10.0)
             try:
-                if fc.name == "camera_snapshot":
+                dance = self._dancing()
+                if dance is not None:
+                    response = {"error": f"Pepper is dancing {dance}; wait for it to finish (task.finished)"}
+                elif fc.name == "camera_snapshot":
                     response = await self._snapshot_to_video(s, rt, args)
                 else:
                     result = await asyncio.wait_for(mcp.call_tool(fc.name, args), TOOL_TIMEOUT_S)
