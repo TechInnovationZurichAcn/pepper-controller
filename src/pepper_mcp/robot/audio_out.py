@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 from pepper_mcp.robot.connection import RobotConnection, RobotError
-from pepper_mcp.robot.ssh import SSH_OPTS, askpass_env, detached
+from pepper_mcp.robot.ssh import DETACHED, SSH_OPTS, askpass_env
 
 log = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class AudioOut:
         """Run scp/ssh non-interactively with the robot password via SSH_ASKPASS."""
         try:
             with askpass_env(self.ssh_password) as env:
-                subprocess.run(detached(cmd), env=env, check=True, timeout=timeout_s, stdin=subprocess.DEVNULL,
+                subprocess.run(cmd, env=env, **DETACHED, check=True, timeout=timeout_s, stdin=subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         except Exception as exc:
             raise RobotError(f"ssh/scp failed: {exc}") from exc

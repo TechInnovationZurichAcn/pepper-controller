@@ -24,7 +24,7 @@ pepper-mcp-verify --ip <PEPPER_IP> [--no-move --quiet]                          
 
 Robot IP: press the chest button once and Pepper says it (DHCP, it changes). The robot
 must be able to connect back to the laptop: `sudo ufw allow from <PEPPER_IP>` (firewalld:
-`firewall-cmd --zone=trusted --add-source=<PEPPER_IP>`). Fresh Arch/Ubuntu install: README Part 1.
+`firewall-cmd --zone=trusted --add-source=<PEPPER_IP>`). Fresh Arch/Ubuntu/macOS install: README Part 1.
 
 ## Layout
 

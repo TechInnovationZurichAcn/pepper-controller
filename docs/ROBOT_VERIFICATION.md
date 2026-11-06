@@ -9,7 +9,7 @@ robot/firmware, and again whenever something behaves differently from the fake.
 
 ```bash
 # x86_64 Linux, Python 3.10-3.12 (libqi-python has no 3.13 or ARM Linux wheels).
-# Fresh Arch/Ubuntu machine: README Part 1 (steps 1-5) installs everything.
+# Fresh Arch/Ubuntu/macOS machine: README Part 1 (steps 1-5) installs everything.
 uv venv --python 3.12 .venv && source .venv/bin/activate
 uv pip install -e ".[all,dev]"
 ```

@@ -23,7 +23,7 @@ import time
 from typing import IO
 
 from pepper_mcp.robot.connection import RobotError
-from pepper_mcp.robot.ssh import SSH_OPTS, askpass_env, detached
+from pepper_mcp.robot.ssh import DETACHED, SSH_OPTS, askpass_env
 
 log = logging.getLogger(__name__)
 
@@ -180,9 +180,9 @@ class TabletRelay:
         ready: list[bool] = []
         with askpass_env(self.ssh_password) as env:
             try:
-                proc = subprocess.Popen(detached(self.command()), env=env, stdin=subprocess.PIPE,
+                proc = subprocess.Popen(self.command(), env=env, **DETACHED, stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            except OSError as exc:  # ssh or setsid missing
+            except OSError as exc:  # ssh missing
                 raise RobotError(f"tablet relay needs ssh: {exc}") from exc
             self._proc = proc  # so stop() can kill it while we wait
             threading.Thread(target=self._read_stdout, args=(proc.stdout, settled, ready), name="tablet-relay-out",

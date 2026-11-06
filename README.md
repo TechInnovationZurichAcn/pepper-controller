@@ -21,7 +21,8 @@ an MCP tool server that runs inside the same process.
 This branch contains only the server and its voice agent. The keyboard teleop lives on `main`.
 
 **Contents:** [Quick start](#quick-start-laptop-and-robot-already-set-up) ·
-[Part 1 – Install on the laptop](#part-1--install-on-the-laptop-arch-or-ubuntu-no-robot-needed) ·
+[Part 1 – Install on the laptop](#part-1--install-on-the-laptop-arch-ubuntu-or-macos-no-robot-needed) ·
+[macOS](#macos-apple-silicon) ·
 [Part 2 – Bring up the robot](#part-2--bring-up-the-robot) ·
 [Configuration](#configuration) ·
 [Persona, language and vocabulary](#persona-language-and-vocabulary) ·
@@ -45,16 +46,17 @@ New laptop? Do **Part 1** once. New robot or new network? Do **Part 2**.
 
 ---
 
-## Part 1 – Install on the laptop (Arch or Ubuntu, no robot needed)
+## Part 1 – Install on the laptop (Arch, Ubuntu or macOS, no robot needed)
 
 Tested on Arch Linux and Ubuntu 22.04 / 24.04 (desktop). Other distributions work if you
-translate the package names. `<PEPPER_IP>` stands for the robot's address (step 8).
+translate the package names. On a Mac (Apple silicon, e.g. a Mac mini M4) follow the same
+steps with the changes in [macOS (Apple silicon)](#macos-apple-silicon). `<PEPPER_IP>` stands for the robot's address (step 8).
 
 ### 0. What you need
 
 | Item | Notes |
 |---|---|
-| **x86_64** Linux laptop | `qi` (libqi-python, the NAOqi client) ships Linux wheels for x86_64 only; ARM boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot. (PyPI also has a Python 3.12 wheel for Apple-silicon macOS; this guide does not cover or test it) |
+| **x86_64** Linux laptop, or an **Apple-silicon Mac** on macOS 13+ | `qi` (libqi-python, the NAOqi client) ships wheels for x86_64 Linux and (Python 3.12 only) arm64 macOS; ARM Linux boards such as a Raspberry Pi can run `--fake` but cannot talk to the robot. Intel Macs have no `qi` wheel |
 | Internet on the laptop | the LLM (Gemini Live) runs in the cloud |
 | A Gemini API key | free from [Google AI Studio](https://aistudio.google.com/apikey); needed by `pepper-mcp-gemini`, also with `--fake` (step 4) |
 | Pepper with NAOqi 2.5.x | charged (plug the charger into the back of the base; unplug it before driving) |
@@ -133,6 +135,70 @@ Open <http://localhost:8765/> (dashboard with event log and fake camera), `Ctrl-
 `--fake` still needs the key from step 4 and internet: the Gemini session starts even with the
 fake robot. A failure here is an install or key problem, not a robot problem.
 
+### macOS (Apple silicon)
+
+Everything else in this guide applies unchanged on a Mac (M1–M4, macOS 13 or newer, e.g. a
+Mac mini M4). Only these steps differ:
+
+**Step 1 – system packages.** `ssh`, `scp`, `nc` and `ping` ship with macOS. Install the
+rest with [Homebrew](https://brew.sh):
+
+```bash
+xcode-select --install          # git (skip if `git --version` already works)
+brew install uv nmap            # avahi is not needed: macOS has dns-sd built in
+```
+
+**Step 2** – skip, `uv` came from Homebrew.
+
+**Step 3** – identical. It must be Python **3.12**: that is the only version with a macOS `qi`
+wheel (`uv venv --python 3.12 .venv` handles it).
+
+**Step 7 – network.** There is no `nmcli`; use *System Settings → Network*.
+
+* *Option A* – join the router's Wi-Fi from the menu bar.
+* *Option B* – plug the router into the Mac's Ethernet port (Mac mini: built in; laptops: a
+  USB-C adapter or dock). macOS gets an address by DHCP on its own. To keep internet on Wi-Fi,
+  open *System Settings → Network → ⋯ (bottom of the list) → Set Service Order…* and drag
+  **Wi-Fi above** the Ethernet / USB LAN service, so the offline router never becomes the
+  default route. Check with `route -n get 1.1.1.1` (`interface:` must be the Wi-Fi device) and
+  `route -n get <ROUTER_IP>` (the Ethernet device); `networksetup -listallhardwareports` shows
+  which `enX` is which (Mac mini: `en0` Ethernet, `en1` Wi-Fi; MacBooks: `en0` is Wi-Fi). A Mac mini wired to an internet router
+  can skip the reordering.
+* *Option C* – instead of `ipv4.method shared`, turn on *System Settings → General → Sharing →
+  Internet Sharing*, sharing Wi-Fi to the Ethernet port. Pepper then gets a `192.168.2.x`
+  address (subnet for step 8: `192.168.2.0/24`).
+
+**Step 8 – find the IP.** Zeroconf: `dns-sd -B _naoqi._tcp` (Ctrl-C to stop) instead of
+`avahi-browse`. `nmap` works as written.
+
+**Step 9.** Use `ifconfig | grep "inet "` (or `ipconfig getifaddr <enX>`) instead of
+`ip -br addr`; `ping` and `nc -zv` are the same.
+
+**Step 10 – firewall and local network access.** Two separate macOS permissions:
+
+1. **Local Network privacy (macOS 15+).** The first time the terminal app reaches the robot,
+   macOS asks whether it may "find and connect to devices on your local network": click
+   **Allow**. If you missed it, enable your terminal app under *System Settings → Privacy &
+   Security → Local Network*, then restart the terminal. Without it, connections to Pepper fail
+   with `No route to host` although the Wi-Fi works.
+2. **Firewall** (*System Settings → Network → Firewall*; off by default). If it is on, allow
+   incoming connections for the venv's real Python binary, or the robot's audio callbacks are
+   dropped silently:
+
+   ```bash
+   PY="$(realpath .venv/bin/python)"
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add "$PY"
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp "$PY"
+   ```
+
+   Clicking **Allow** on the "accept incoming network connections?" dialog at the first start
+   does the same. Re-run after recreating the venv or upgrading Python (new binary path).
+
+**Step 14 – shutdown.** Skip the `nmcli con down` part; for option C turn Internet Sharing off.
+
+Untested on macOS so far: the steps above follow the platform tools, but the full robot
+checklist (step 11) has only been run from Linux.
+
 ---
 
 ## Part 2 – Bring up the robot
@@ -164,6 +230,8 @@ If Pepper stays slumped forward after boot it is in rest mode – that is fine, 
 wakes it on start.
 
 ### 7. Put Pepper and the laptop on the same network
+
+On a Mac, see [macOS (Apple silicon)](#macos-apple-silicon) for the `nmcli` equivalents.
 
 The robot has to open connections **to** the laptop (microphone audio, ALMemory signals),
 not only the other way round. Networks with client isolation (guest Wi-Fi, campus/eduroam,
@@ -370,6 +438,9 @@ nc -zv <PEPPER_IP> 9559         # NAOqi port
 
 ### 10. Open the laptop firewall for the robot
 
+On a Mac, see [macOS (Apple silicon)](#macos-apple-silicon) instead (firewall and Local Network
+permission).
+
 The robot calls back into the laptop on a random TCP port (audio stream, signals). A
 firewall that blocks inbound connections makes hearing **fail silently**. Find out which
 firewall you have, then allow everything from the robot's IP only:
@@ -557,6 +628,11 @@ input transcript (English is always the second). Gemini itself answers in whatev
 spoken to and the persona says. Known names: German, English, French, Italian, Spanish, Dutch,
 Portuguese, Japanese, Chinese; any other value turns the transcription hint off.
 
+What Pepper knows about the day itself (the programme, Accenture, the computer science and AI
+slides, the CLEAR prompt framework) is in [`knowledge.txt`](knowledge.txt), condensed from the
+Zukunftstag 2026 presentation. It is appended to the persona at every start and is optional:
+delete or replace it for another event and restart.
+
 Names and words Pepper keeps mishearing go in [`vocabulary.txt`](vocabulary.txt) (one per line,
 `#` comments), which biases the input transcriber; restart to apply. That transcriber only writes
 the `[heard]` lines and the dashboard's Conversation card: Gemini answers from the audio itself.
@@ -581,6 +657,7 @@ docs/           MCP_ENDPOINTS.md (every tool/resource/event), ARCHITECTURE.md (d
                 ROBOT_VERIFICATION.md (hardware checklist, firmware quirks)
 tests/          pytest suite against the fake robot
 persona.txt     Gemini's system instruction
+knowledge.txt   facts about the event, appended to the persona
 vocabulary.txt  transcription hints
 .env            GEMINI_LIVE_KEY (git-ignored, you create it)
 pepper_maps.json  saved maps and spots (git-ignored, written at runtime)
@@ -624,8 +701,9 @@ NAOqi method needs it in `robot/fake.py` too, or the tests and `--fake` break.
 
 | Symptom | Fix |
 |---|---|
-| `uv: command not found` | Ubuntu: step 2, then open a new terminal; Arch: `sudo pacman -S uv` |
-| `qi` wheel not found / `No solution found … qi` | venv on Python 3.13+: `rm -rf .venv && uv venv --python 3.12 .venv`; or the machine is not x86_64 (no `qi` wheels for ARM Linux) |
+| `uv: command not found` | Ubuntu: step 2, then open a new terminal; Arch: `sudo pacman -S uv`; macOS: `brew install uv` |
+| `qi` wheel not found / `No solution found … qi` | venv on Python 3.13+: `rm -rf .venv && uv venv --python 3.12 .venv`; or the machine is not x86_64 Linux / Apple-silicon macOS (no `qi` wheels for ARM Linux or Intel Macs) |
+| macOS: `No route to host` / `cannot reach NAOqi` although `ping` from another app works | Local Network permission for the terminal app ([macOS](#macos-apple-silicon), step 10) |
 | `pepper-mcp-gemini: command not found` | venv not active in this terminal: `source .venv/bin/activate` from the repo root |
 | `cannot reach NAOqi` | same network? IP still right (press the chest button)? `nc -zv <PEPPER_IP> 9559`; port closed while ping works → client isolation |
 | Pepper says it is not connected | it is not on any network: step 7 |

@@ -30,6 +30,7 @@ def askpass_env(password: str) -> Iterator[dict[str, str]]:
             os.unlink(askpass.name)
 
 
-def detached(cmd: list[str]) -> list[str]:
-    """Run without a controlling terminal, or ssh asks on the tty instead of using SSH_ASKPASS."""
-    return ["setsid", "-w", *cmd] if os.name == "posix" else cmd
+# Run ssh/scp in a new session (no controlling terminal), or ssh asks for the password on the
+# tty instead of using SSH_ASKPASS. Passed to subprocess so it also works on macOS, which has
+# no util-linux ``setsid`` command.
+DETACHED: dict[str, bool] = {"start_new_session": os.name == "posix"}
