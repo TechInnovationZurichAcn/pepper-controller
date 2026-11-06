@@ -32,3 +32,6 @@ pepper-venv/
 # Runtime state written by the server (robot-specific maps + spots, downloaded STT models)
 pepper_maps.json
 .models/
+
+# Dance music imported by pepper_mcp.choregraphe_import (commercial recordings; rerun the import)
+src/pepper_mcp/assets/dances/*.ogg

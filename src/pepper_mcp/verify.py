@@ -132,6 +132,19 @@ def main(argv: list[str] | None = None) -> None:
         return "moved forward briefly and stopped"
 
     check("move", move)
+
+    def bezier() -> str:
+        # The Choregraphe animations and dances use angleInterpolationBezier with clamped keys.
+        if args.no_move:
+            return "skipped"
+        from pepper_mcp.robot.qianim import Key, Timeline, to_bezier
+
+        rt.motion.wake_up()
+        plan = to_bezier(Timeline({"HeadPitch": [Key(0.5, 0.15), Key(1.0, 0.0)]}), lead_in_s=0.5)
+        rt.motion.interpolate_bezier_async(plan.names, plan.times, plan.keys).value(5000)
+        return f"head nod over {plan.end_s:.1f} s"
+
+    check("bezier", bezier)
     rt.stop()
     failed = [n for n, ok, _ in results if not ok]
     print(f"\n{len(results) - len(failed)}/{len(results)} checks passed" + (f"; failed: {failed}" if failed else ""))

@@ -330,7 +330,7 @@ class FakeRobot:
             "ALTabletService": FakeService("ALTabletService", returns={"showWebview": True, "getWifiStatus": "CONNECTED"}),
             "ALVideoDevice": FakeVideo(),
             "ALAudioDevice": FakeAudioDevice(self),
-            "ALAudioPlayer": FakeService("ALAudioPlayer"),
+            "ALAudioPlayer": FakeService("ALAudioPlayer", returns={"loadFile": 1}),
             "ALTracker": FakeService("ALTracker", returns={"isActive": False}),
             "ALPeoplePerception": FakeService("ALPeoplePerception"),
             "ALWavingDetection": FakeService("ALWavingDetection"),

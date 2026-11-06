@@ -73,8 +73,10 @@ def state(rt: Any) -> dict[str, Any]:
     out["abilities"] = _safe("abilities", rt.awareness.abilities)
     out["cameras"] = _safe("cameras", rt.cameras.status) if rt.cameras else []
     out["volume"] = _safe("volume", rt.audio_out.get_volume) if rt.audio_out else None
+    # The single library animations (hello_3, point_far_half_left…) would bury the buttons;
+    # their groups (greeting, attract…) and the dances are listed instead.
     out["gestures"] = [{"name": g["name"], "description": g.get("description", "")}
-                       for g in (_safe("gestures", rt.gestures.list) or [])]
+                       for g in (_safe("gestures", rt.gestures.list) or []) if "library" not in g.get("tags", [])]
     out["transcript"] = list(rt.transcript)[-8:]
     out["options"] = {"liveliness": sorted(PRESETS),
                       "abilities": list(ABILITIES), "moods": sorted(MOODS), "extractors": sorted(EXTRACTORS),

@@ -41,6 +41,7 @@ It prints one line per check, then `N/M checks passed` (exit code 1 if any faile
 | people | people perception extractors start; count of visible people | perception tools return empty lists |
 | charging hatch | `Device/SubDeviceList/Platform/ILS/Sensor/Value` is 0 (closed) | close the flap on the lower back: NAOqi locks the wheels while it is open |
 | move | wake up, `move(0.15, 0, 0)` for 300 ms, then stop | charging hatch closed? `wakeUp`, security distances |
+| bezier | `angleInterpolationBezier` accepts the clamped keys the Choregraphe animations and dances use (small head nod; skipped with `--no-move`) | – (library gestures and dances fail; the keyframe gestures still work) |
 
 ## 2. Manual interaction test
 
@@ -62,14 +63,20 @@ pepper-mcp-gemini --ip <PEPPER_IP> --preview-port 8765 --liveliness off
    still on (`get_safety` → `collision_protection_arms`). Then put the arms in odd poses
    (`arm_pose` left `hug`, right `high_five`) and play `arms_down`: both arms must end fully
    down along the sides, forearms not twisted inward.
-5. Touch the head: the eyes flash green and the head tilts (`touch_reaction`); Gemini may answer.
-6. Ask Pepper to play tic-tac-toe: the board must appear on the tablet within a few seconds and a
+5. Play `greeting`, `point_far_half_left` and `show_tablet` from the dashboard or `play_gesture`
+   with someone standing in front: the arms must complete the movement (collision protection is
+   off while they run) and Pepper ends standing. Then play `dance_la_bamba` (needs SSH for the
+   music upload; the first start waits a few seconds for it): the music must start with the
+   moves, Pepper must stay on the spot, and `STOP` must end both motion and music at once. After
+   any library gesture `get_safety` must show arm collision protection on again.
+6. Touch the head: the eyes flash green and the head tilts (`touch_reaction`); Gemini may answer.
+7. Ask Pepper to play tic-tac-toe: the board must appear on the tablet within a few seconds and a
    tap on a square must be answered by Pepper's move. A blank white page means the tablet relay
    is not running (section 3, "The tablet is not on the LAN"); `robot_capabilities` →
    `features.tablet_url` shows the relay address when it is up.
-7. Ask Pepper to turn around: the base must turn. If it says the charging hatch is open, close
+8. Ask Pepper to turn around: the base must turn. If it says the charging hatch is open, close
    the flap on the lower back.
-8. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
+9. Stop with `Ctrl-C` before starting another process that owns the robot (README step 14).
    The log must end without errors and NAOqi's safety distances are back at 0.4 / 0.1 m.
 
 ## 3. Known firmware quirks handled in code

@@ -48,7 +48,9 @@ src/pepper_mcp/
     motion.py       base / joints / posture / safety with velocity watchdog
     speech.py       TTS queue (ALAnimatedSpeech / ALTextToSpeech)
     animation.py    stock animations (discovered at runtime) + tags
-    gestures.py     keyframe + procedural gesture registry (high five, 67, clown…)
+    gestures.py     keyframe + procedural + Choregraphe timeline gestures and groups (high five,
+                    67, clown, greeting, dances…)
+    qianim.py       .qianim parser → clamped angleInterpolationBezier keys
     perception.py   people / waving / gaze / engagement / touch / sonar / sound
     camera.py       ALVideoDevice grabbers, JPEG cache
     audio_in.py     ALAudioDevice remote module → PCM fan-out
@@ -57,7 +59,7 @@ src/pepper_mcp/
     tablet_relay.py TCP relay on the head so the tablet (not on the LAN) reaches the preview server
     ssh.py          password SSH to the robot (SSH_ASKPASS), shared by uploads and the relay
     fake.py         in-memory fake NAOqi (tests, `--fake` dev mode)
-  reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery)
+  reflexes/         Reflex base + built-ins (attention, high_five, greet, touch, battery, idle)
   tools/            MCP tool modules, one per domain, auto-registered (_common.py: @tool decorator,
                     READ_ONLY / ACTION / MOVES_ROBOT annotations, error mapping)
   games/            tic-tac-toe engine + the tablet page it serves (tictactoe.py / .html)
@@ -133,9 +135,11 @@ MCP client, driven by one streaming Gemini Live session instead of a text turn l
   gestures or sensed events.
 - **Echo:** no AEC on the robot, so `EchoGate` drops mic audio while Gemini's voice plays, NAOqi
   speaks (`tts.*`, which also covers phrases said by reflexes and gestures) or a task that plays
-  sound is active (`play_audio`, `play_sine`, `run_behavior`, the `clown_dance` music), plus a
+  sound is active (`play_audio`, `play_sine`, `run_behavior`, gestures with music: `clown_dance`,
+  the dances and the `dance` group, from `GestureRegistry.music_gestures()`), plus a
   0.4 s reverb tail. Body movement alone (gestures, animations, reflexes) never mutes the mic,
-  so people can talk to Pepper while it moves. Every source expires on its own (≤ 30 s) so a missed event cannot
+  so people can talk to Pepper while it moves. Every source expires on its own (≤ 30 s; a music
+  gesture's task is held for its duration + 5 s) so a missed event cannot
   leave Pepper deaf. Separately, the dashboard's mic switch sets `rt.mic_muted`, which also sends
   silence and never expires: it stays muted until switched back on.
 - **Sessions:** context-window compression keeps audio+video sessions alive past 2 min;
@@ -238,8 +242,9 @@ only cross-thread fan-out point and is thread-safe.
 ## 6. Extension points
 
 * **New tool domain:** add `tools/<name>.py` with `register(mcp, rt)`.
-* **New gesture:** add to `gestures.BUILTIN` (keyframes in degrees) or call
-  `define_gesture` at runtime.
+* **New gesture:** add to `gestures.builtin_gestures()` (keyframes in degrees), call
+  `define_gesture` at runtime, or import Choregraphe `.qianim` / `behavior.xar` timelines with
+  `python -m pepper_mcp.choregraphe_import` (entries in `assets/choreography.json`).
 * **New reflex:** subclass `reflexes.base.Reflex`, declare `triggers`, implement
   `on_event`; register in `reflexes/__init__.py`.
 * **New perception source:** `perception.py` → `MemoryWatcher.watch(key, handler)`.

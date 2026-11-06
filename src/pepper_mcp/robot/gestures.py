@@ -14,16 +14,22 @@ All gestures run on a background thread tracked by the task registry and respect
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
+import random
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
+from pepper_mcp.robot.audio_out import ASSETS_DIR
 from pepper_mcp.robot.connection import RobotError
 from pepper_mcp.robot.motion import JOINT_LIMITS, Motion, arm_pose_angles, clamp_joint, rad
+from pepper_mcp.robot.qianim import Timeline, parse_qianim, to_bezier
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +51,11 @@ class Gesture:
     def play(self, ctx: GestureContext, stop_event: threading.Event, params: dict[str, Any]) -> Any:
         raise NotImplementedError
 
+    @property
+    def has_music(self) -> bool:
+        """Plays music through the speakers (the voice agent keeps the mic muted meanwhile)."""
+        return "music" in self.tags
+
     def to_dict(self) -> dict[str, Any]:
         return {"name": self.name, "description": self.description,
                 "duration_s": round(self.duration_s, 1), "tags": self.tags,
@@ -63,6 +74,52 @@ class GestureContext:
     bus: Any = None
     assets_url: Callable[[str], str | None] | None = None
     disable_arm_collision: bool = True
+
+
+@contextmanager
+def _arms_collision_off(ctx: GestureContext, needed: bool) -> Iterator[None]:
+    """External arm collision protection off for the duration (if the gesture needs it and the
+    context allows it); always switched back on, even when the motion raises."""
+    off = needed and ctx.disable_arm_collision
+    if off:
+        try:
+            ctx.motion.set_collision_protection("Arms", False)
+        except Exception as exc:
+            log.debug("collision protection off failed: %s", exc)
+    try:
+        yield
+    finally:
+        if off:
+            try:
+                ctx.motion.set_collision_protection("Arms", True)
+            except Exception as exc:
+                log.warning("could not re-enable arm collision protection: %s", exc)
+
+
+def _wait_motion(ctx: GestureContext, fut: Any, stop_event: threading.Event, deadline: float,
+                 on_tick: Callable[[], None] | None = None) -> bool:
+    """Wait for an interpolation future; True when ``stop_event`` interrupted it."""
+    while not fut.isFinished():
+        if stop_event.is_set():
+            try:
+                fut.cancel()
+            except Exception:
+                pass
+            ctx.motion.stop_all()
+            return True
+        if on_tick is not None:
+            on_tick()
+        if time.monotonic() > deadline:
+            break
+        time.sleep(0.02)
+    return False
+
+
+def _return_to_rest(ctx: GestureContext) -> None:
+    try:
+        ctx.motion.go_to_posture("StandInit", 0.5)
+    except Exception as exc:
+        log.debug("return to rest: %s", exc)
 
 
 @dataclass
@@ -109,39 +166,14 @@ class KeyframeGesture(Gesture):
                 times.append(kf.t_s)
             angle_lists.append(angles)
             time_lists.append(times)
-        collision_off = self.needs_arm_collision_off and ctx.disable_arm_collision
-        if collision_off:
-            try:
-                ctx.motion.set_collision_protection("Arms", False)
-            except Exception as exc:
-                log.debug("collision protection off failed: %s", exc)
-        try:
+        with _arms_collision_off(ctx, self.needs_arm_collision_off):
             fut = ctx.motion.interpolate_async(names, angle_lists, time_lists, True)
-            deadline = time.monotonic() + self.keyframes[-1].t_s + 2.0
-            while not fut.isFinished():
-                if stop_event.is_set():
-                    try:
-                        fut.cancel()
-                    except Exception:
-                        pass
-                    ctx.motion.stop_all()
-                    return {"interrupted": True}
-                if time.monotonic() > deadline:
-                    break
-                time.sleep(0.02)
+            if _wait_motion(ctx, fut, stop_event, time.monotonic() + self.keyframes[-1].t_s + 2.0):
+                return {"interrupted": True}
             # Lower the arm while protection is still off, or it can freeze on the way down too.
             if self.return_to_rest and not stop_event.is_set():
-                try:
-                    ctx.motion.go_to_posture("StandInit", 0.5)
-                except Exception as exc:
-                    log.debug("return to rest: %s", exc)
+                _return_to_rest(ctx)
             return {"interrupted": False}
-        finally:
-            if collision_off:
-                try:
-                    ctx.motion.set_collision_protection("Arms", True)
-                except Exception as exc:
-                    log.warning("could not re-enable arm collision protection: %s", exc)
 
     def to_dict(self) -> dict[str, Any]:
         d = super().to_dict()
@@ -268,6 +300,174 @@ class HighFiveGesture(Gesture):
                 except Exception:
                     pass
         return {"touched": touched, "interrupted": stop_event.is_set()}
+
+
+# ---------------------------------------------------------------------------
+# Choregraphe timelines (assets/choreography.json, imported by pepper_mcp.choregraphe_import).
+# ---------------------------------------------------------------------------
+
+CHOREOGRAPHY_MANIFEST = "choreography.json"
+LEAD_IN_S = 0.8  # time to reach the first keys from wherever the robot stands
+REST_S = 1.5
+
+
+@dataclass
+class TimelineGesture(Gesture):
+    """A Choregraphe ``.qianim`` timeline played with ``angleInterpolationBezier``, optionally
+    with music started ``music_offset_s`` after the timeline's origin (dances)."""
+    file: str = ""  # relative to ASSETS_DIR
+    music: str | None = None  # relative to ASSETS_DIR; git-ignored, may be missing
+    music_offset_s: float = 0.0
+    return_to_rest: bool = True
+    # Choreographies are made for an audience in front of the robot: same reason as `wave`.
+    needs_arm_collision_off: bool = True
+    _timeline: Timeline | None = field(default=None, init=False, repr=False, compare=False)
+
+    @property
+    def has_music(self) -> bool:
+        return bool(self.music) and os.path.exists(os.path.join(ASSETS_DIR, self.music or ""))
+
+    def timeline(self) -> Timeline:
+        if self._timeline is None:
+            with open(os.path.join(ASSETS_DIR, self.file), encoding="utf-8") as fh:
+                self._timeline = parse_qianim(fh.read())
+        return self._timeline
+
+    def _load_music(self, ctx: GestureContext, params: dict[str, Any]) -> Any:
+        """Upload (first time only) and preload the track so it starts on the beat."""
+        if not self.has_music or ctx.audio is None or not params.get("music", True):
+            return None
+        path = ctx.audio.robot_asset_path(self.music)
+        if not path:
+            return None
+        try:
+            return ctx.audio.load(path)
+        except Exception as exc:
+            log.info("could not load %s on the robot: %s", path, exc)
+            return None
+
+    def play(self, ctx: GestureContext, stop_event: threading.Event, params: dict[str, Any]) -> Any:
+        timeline = self.timeline()
+        try:
+            current = ctx.motion.get_angles(sorted(timeline.curves))
+        except Exception as exc:
+            log.debug("current angles unavailable: %s", exc)
+            current = None
+        plan = to_bezier(timeline, LEAD_IN_S, min_shift_s=max(0.0, -self.music_offset_s), current=current)
+        track = self._load_music(ctx, params)
+        music_at = plan.shift_s + self.music_offset_s
+        playing = False
+        volume: int | None = None
+        if track is not None:
+            try:
+                volume = ctx.audio.get_volume()
+                ctx.audio.set_volume(max(volume, 70))
+            except Exception:
+                volume = None
+        try:
+            with _arms_collision_off(ctx, self.needs_arm_collision_off):
+                fut = ctx.motion.interpolate_bezier_async(plan.names, plan.times, plan.keys)
+                start = time.monotonic()
+
+                def start_music() -> None:
+                    nonlocal playing
+                    if track is not None and not playing and time.monotonic() - start >= music_at:
+                        playing = True  # one attempt only: a failed start leaves the dance silent
+                        try:
+                            ctx.audio.play_loaded_async(track)
+                        except Exception as exc:
+                            log.info("music for %s did not start: %s", self.name, exc)
+
+                interrupted = _wait_motion(ctx, fut, stop_event, start + plan.end_s + 2.0, start_music)
+                if playing:
+                    ctx.audio.stop()
+                    playing = False
+                if self.return_to_rest and not interrupted and not stop_event.is_set():
+                    _return_to_rest(ctx)
+                return {"interrupted": interrupted, "music": track is not None}
+        finally:
+            if playing:
+                ctx.audio.stop()
+            if volume is not None:
+                try:
+                    ctx.audio.set_volume(volume)  # the music level would otherwise stick to the voice
+                except Exception as exc:
+                    log.debug("volume restore: %s", exc)
+
+    def to_dict(self) -> dict[str, Any]:
+        d = super().to_dict()
+        if self.music:
+            d["music"] = self.has_music
+        return d
+
+
+@dataclass
+class GestureGroup(Gesture):
+    """Plays a random member (never the same one twice in a row); ``params.variant`` picks one."""
+    members: list[Gesture] = field(default_factory=list)
+    _last: str | None = field(default=None, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not self.members:
+            raise RobotError(f"gesture group {self.name!r} has no members")
+        self.duration_s = max(m.duration_s for m in self.members)
+
+    @property
+    def has_music(self) -> bool:
+        return any(m.has_music for m in self.members)
+
+    def pick(self, params: dict[str, Any]) -> Gesture:
+        by_name = {m.name: m for m in self.members}
+        wanted = params.get("variant")
+        if wanted is not None:
+            if wanted not in by_name:
+                raise RobotError(f"{self.name!r} has no variant {wanted!r}; variants: {', '.join(by_name)}")
+            return by_name[wanted]
+        choices = [m for m in self.members if m.name != self._last] or self.members
+        return random.choice(choices)
+
+    def play(self, ctx: GestureContext, stop_event: threading.Event, params: dict[str, Any]) -> Any:
+        gesture = self.pick(params)
+        self._last = gesture.name
+        result = gesture.play(ctx, stop_event, {k: v for k, v in params.items() if k != "variant"})
+        return {"variant": gesture.name, **(result if isinstance(result, dict) else {"result": result})}
+
+    def to_dict(self) -> dict[str, Any]:
+        return super().to_dict() | {"variants": [m.name for m in self.members]}
+
+
+def library_gestures(manifest_path: str | None = None) -> list[Gesture]:
+    """Animations, dances and their random-variant groups from ``assets/choreography.json``."""
+    path = manifest_path or os.path.join(ASSETS_DIR, CHOREOGRAPHY_MANIFEST)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        log.warning("choreography manifest %s unreadable: %s", path, exc)
+        return []
+    out: dict[str, Gesture] = {}
+    for a in manifest.get("animations", []):
+        rest = bool(a.get("return_to_rest", True))
+        out[a["name"]] = TimelineGesture(
+            name=a["name"], description=a["description"], tags=list(a.get("tags", [])),
+            duration_s=float(a["duration_s"]) + LEAD_IN_S + (REST_S if rest else 0.0),
+            file=a["file"], return_to_rest=rest)
+    for d in manifest.get("dances", []):
+        gesture = TimelineGesture(
+            name=d["name"], description=d["description"], tags=["dance", "fun"],
+            duration_s=float(d["duration_s"]) + LEAD_IN_S + max(0.0, -float(d.get("music_offset_s", 0))) + REST_S,
+            file=d["file"], music=d.get("music"), music_offset_s=float(d.get("music_offset_s", 0)))
+        if gesture.has_music:
+            gesture.tags.append("music")
+        out[d["name"]] = gesture
+    for g in manifest.get("groups", []):
+        members = [out[m] for m in g.get("members", []) if m in out]
+        if members:
+            out[g["name"]] = GestureGroup(name=g["name"], description=g["description"], duration_s=0,
+                                          tags=["group", *g.get("tags", [])], members=members)
+    return list(out.values())
 
 
 # ---------------------------------------------------------------------------
@@ -409,22 +609,32 @@ def builtin_gestures() -> list[Gesture]:
             step=_67_step, setup=_67_setup, teardown=_67_teardown, speed=0.8),
         ProceduralGesture(
             name="clown_dance", description="whole-body jig to looped circus music", duration_s=20.0,
-            tags=["emote", "fun", "dance"], step=_clown_step, setup=_clown_setup, teardown=_clown_teardown),
+            tags=["emote", "fun", "dance", "music"], step=_clown_step, setup=_clown_setup, teardown=_clown_teardown),
     ]
 
 
 class GestureRegistry:
     def __init__(self, ctx_factory: Callable[[], GestureContext]):
         self._gestures: dict[str, Gesture] = {g.name: g for g in builtin_gestures()}
+        for g in library_gestures():
+            if g.name in self._gestures:
+                log.warning("library gesture %s shadows a built-in; skipped", g.name)
+                continue
+            self._gestures[g.name] = g
         self._ctx_factory = ctx_factory
-        self._active: dict[str, threading.Event] = {}
+        # name -> (stop request, finished); a gesture keeps its entry until its finally has run
+        self._active: dict[str, tuple[threading.Event, threading.Event]] = {}
         self._lock = threading.Lock()
 
     def names(self) -> list[str]:
         return sorted(self._gestures)
 
-    def list(self) -> list[dict[str, Any]]:
-        return [self._gestures[n].to_dict() for n in self.names()]
+    def list(self, tag: str | None = None) -> list[dict[str, Any]]:
+        return [self._gestures[n].to_dict() for n in self.names() if tag is None or tag in self._gestures[n].tags]
+
+    def music_gestures(self) -> frozenset[str]:
+        """Gestures that play music, so the voice agent mutes the mic while they run."""
+        return frozenset(n for n, g in self._gestures.items() if g.has_music)
 
     def get(self, name: str) -> Gesture:
         g = self._gestures.get(name)
@@ -451,27 +661,41 @@ class GestureRegistry:
             del self._gestures[name]
             return True
 
-    def play(self, name: str, params: dict[str, Any] | None = None) -> Any:
-        """Blocking play (call from a task thread). Only one gesture at a time."""
+    PREEMPT_WAIT_S = 3.0
+
+    def play(self, name: str, params: dict[str, Any] | None = None, preempt: bool = True) -> Any:
+        """Blocking play (call from a task thread). Only one gesture at a time: a new one stops
+        the running one and waits for its cleanup (collision protection back on, its music
+        stopped) so that cleanup cannot undo the new gesture's setup. ``preempt=False`` plays
+        only when nothing else runs and returns None otherwise (background reflexes)."""
         gesture = self.get(name)
-        stop_event = threading.Event()
+        entry = (threading.Event(), threading.Event())
         with self._lock:
-            # stop others first
-            for ev in self._active.values():
-                ev.set()
-            self._active[name] = stop_event
+            if not preempt and self._active:
+                return None
+            previous = list(self._active.values())
+            for stop, _ in previous:
+                stop.set()
+            self._active[name] = entry
+        stop_event, done = entry
         try:
+            for _, finished in previous:
+                if not finished.wait(self.PREEMPT_WAIT_S):
+                    log.warning("previous gesture did not finish within %.0f s", self.PREEMPT_WAIT_S)
+            if stop_event.is_set():  # stopped (or preempted) while waiting
+                return {"interrupted": True}
             return gesture.play(self._ctx_factory(), stop_event, params or {})
         finally:
+            done.set()
             with self._lock:
-                if self._active.get(name) is stop_event:
+                if self._active.get(name) is entry:
                     del self._active[name]
 
     def stop_all(self) -> int:
         with self._lock:
             n = len(self._active)
-            for ev in self._active.values():
-                ev.set()
+            for stop, _ in self._active.values():
+                stop.set()
         return n
 
     def active(self) -> list[str]:

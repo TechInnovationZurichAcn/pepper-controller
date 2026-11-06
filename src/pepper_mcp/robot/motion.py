@@ -356,6 +356,11 @@ class Motion:
         return RobotConnection.call_async(self.motion, "angleInterpolation", names, angle_lists,
                                           time_lists, absolute)
 
+    def interpolate_bezier_async(self, names: list[str], times: list[list[float]], keys: list[Any]) -> Any:
+        """``angleInterpolationBezier`` (absolute angles) as a future – the primitive for
+        Choregraphe timelines. Keys must already be clamped (see ``qianim.to_bezier``)."""
+        return RobotConnection.call_async(self.motion, "angleInterpolationBezier", names, times, keys)
+
     def look(self, yaw_deg: float, pitch_deg: float, speed: float = 0.3) -> dict[str, float]:
         return self.set_angles({"HeadYaw": rad(yaw_deg), "HeadPitch": rad(pitch_deg)}, speed)
 

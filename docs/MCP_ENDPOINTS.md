@@ -79,6 +79,7 @@ New capabilities added for real-time interaction (not on `main`):
 | Look-at / point-at a 3D point or a person | `ALTracker` | `look_at_person`, `look_at_point`, `point_at` |
 | Local obstacle-avoiding move | `ALNavigation.navigateTo` | `navigate_to` |
 | Keyframe gestures defined at runtime by the LLM | laptop | `define_gesture`, `play_gesture` |
+| Choregraphe animation library (100 `.qianim` timelines) and 11 dances with music | `ALMotion.angleInterpolationBezier`, `ALAudioPlayer.loadFile`/`play` | `play_gesture`, `list_gestures(tag=…)` |
 | Reflex layer (sub-second reactions without an LLM round-trip) | laptop | `list_reflexes`, `set_reflex`, `reflex.*` events |
 
 ---
@@ -166,8 +167,8 @@ so do the joint tools.
 |---|---|---|
 | `play_animation` | `name` (full path or tag such as `hello`, `yes`, `thinking`), `wait=False` | task id |
 | `list_animations` | `filter?`, `category?`, `limit=80` | installed animation paths (discovered live from `ALBehaviorManager`, falls back to the curated list) |
-| `play_gesture` | `name`, `wait=False`, `params?` (gesture-specific, e.g. `sixty_seven` `{speak: true}`) | task id |
-| `list_gestures` | – | built-in + user-defined gestures with descriptions |
+| `play_gesture` | `name`, `wait=False`, `params?` (gesture-specific, e.g. `sixty_seven` `{speak: true}`, a dance `{music: false}`, a group `{variant: "hello_3"}`) | task id |
+| `list_gestures` | `tag?` (`dance`, `group`, `greeting`, `deictic`, `emotion`, `idle`, `library`…) | built-in, library and user-defined gestures with descriptions, tags, durations; groups list their `variants`, dances whether their `music` file is present |
 | `define_gesture` | `name`, `description`, `keyframes: [{t_s, joints:{name: deg}}]`, `return_to_rest=True`, `speech?` | ok (available immediately in `play_gesture`) |
 | `remove_gesture` | `name` | ok (user-defined gestures only) |
 | `stop_animation` | – | ok |
@@ -175,6 +176,28 @@ so do the joint tools.
 Built-in gestures (`robot/gestures.py`): `high_five`, `wave`, `celebrate`, `nod`, `shake_head`,
 `hug_open`, `point_forward`, `bow`, `arms_down`, `sixty_seven` (67 meme, GIF on the tablet),
 `clown_dance` (~20 s whole-body dance to looped circus music).
+
+Library gestures (`assets/choreography.json`, imported from Choregraphe projects by
+`python -m pepper_mcp.choregraphe_import <03_Pepper folder>`), played with
+`angleInterpolationBezier`; every key and Bezier handle is clamped to the joint limits, the
+first keys are reached over a 0.8 s lead-in, arm collision protection is off while they run and
+back on in `finally`, and `stop_motion` / `stop_animation` interrupt them (and their music):
+
+| Kind | Names |
+|---|---|
+| Random-variant groups (`params.variant` picks one) | `greeting` (10 hellos), `attract` (beckon, 14), `show_tablet` (6), `enumerate` (4), `make_space` (4), `nice_reaction` (2), `sad_reaction` (2), `idle` (20 fidgets), `loading` (8 waiting poses), `back_to_stand` (3), `dance` (the 10 dances with music) |
+| Pointing | `point_{far,near}_{front,medium,half}_{left,right}` (front = ahead, medium ≈ 30°, half ≈ 60° to that side; near = something close/low) |
+| Showing itself | `show_self`, `show_head`, `show_micro`, `show_shoulders`, `show_body_1..3`, `show_hand_{left,right}_1..2`, `show_hand_both_1..2`, `show_bumper_{left,right}` |
+| Single variants | `hello_1..10`, `attract_{left,right}_1..7`, `show_tablet_1..6`, `enumeration_1..4`, `make_space_1..4`, `nice_reaction_1..2`, `sad_reaction_1..2`, `loading_{left,right}_1..4`, `back_to_stand_1..3`, idle ones (`looking_around`, `look_far_left`, `play_with_hand_right`, `motor_sound_left`…) |
+| Dances (whole song, on the spot) | `dance_gangnam_style`, `dance_la_bamba`, `dance_relax`, `dance_walk_this_way`, `dance_asereje`, `dance_knights`, `dance_reed_flutes`, `dance_hungarian`, `dance_dango`, `dance_date` (50 s – 1.8 min, with music), `dance_disco` (16 s, no music) |
+
+Dance music is uploaded to the robot over SSH on first use (a few seconds), preloaded and started
+on the beat at a volume of at least 70 (the previous volume comes back afterwards); without SSH or
+without the git-ignored `.ogg` files the dance runs silently. A joint a dance only uses later holds
+still until 1 s before its first key. A new gesture stops the running one and waits for its
+cleanup (collision protection, music) before it starts; the `idle` reflex never interrupts one. The
+Choregraphe originals also drove the base (`Move To`); those moves are left out. While a gesture
+with music runs, Gemini's mic stays muted for its whole length.
 
 ### 2.6 Perception
 
@@ -299,9 +322,10 @@ Built-in reflexes (`src/pepper_mcp/reflexes/`). Switch them with `set_reflex`, t
 |---|---|---|
 | `attention` | on | `speech.*` / `tts.*` / `sound.located` → eyes cyan while a person talks, purple until Pepper answers (back to neutral after 8 s), white while Pepper talks; the head turns toward whoever is talking. Pepper's own voice is never taken for a speaker |
 | `high_five` | on | `person.waving` → right arm up, wait for a touch on the back of the hand, celebrate. Silent unless `params.phrase` / `success_phrase` are set; the result goes to Gemini |
-| `greet` | **off** | `person.appeared` after nobody was around → the `wave` gesture (Gemini greets with words itself) |
+| `greet` | **off** | `person.appeared` after nobody was around → the `greeting` gesture, a random one of ten hello animations (`params.gesture`; Gemini greets with words itself) |
 | `touch_reaction` | on | head touched → eyes flash green and the head tilts briefly; hand touched → that hand closes for a moment; bumpers ignored |
 | `low_battery` | on | battery below 15 % → chest LED orange; speaks only if `params.phrase` is set (Gemini gets `battery.low`) |
+| `idle` | **off** | nobody seen, no task or gesture and no speech/touch for `params.idle_after_s` (30 s) → the `idle` gesture group every `params.interval_s` (30 s); publishes nothing, so Gemini is not told about each fidget |
 
 No reflex or built-in gesture speaks in NAOqi's voice by default, so nothing talks over Gemini;
 `sixty_seven` only chants "six seven" with `params.speak=true`.

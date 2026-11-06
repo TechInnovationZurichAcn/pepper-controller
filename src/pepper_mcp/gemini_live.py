@@ -82,7 +82,9 @@ SYNC_ONLY_MODELS = ("gemini-3.1-flash-live",)
 # Plain body movement never mutes it, so people can talk to Pepper while it gestures; speech a
 # gesture or reflex makes goes through NAOqi TTS and mutes via tts.started/tts.finished.
 SOUND_TOOLS = frozenset({"play_audio", "play_sine", "run_behavior"})
-MUSIC_GESTURES = frozenset({"clown_dance"})  # plays music through ALAudioPlayer
+# Gestures that play music through ALAudioPlayer. Only the default until the session starts:
+# the bridge then asks the gesture registry (dances, clown_dance, the "dance" group…).
+MUSIC_GESTURES = frozenset({"clown_dance"})
 # A background action's result goes back SILENT only if the model spoke in the turn that called
 # it; otherwise the model is waiting for the result before it answers and must get a turn.
 SPEAK_WAIT_S = 0.8
@@ -182,8 +184,8 @@ def load_api_key(env_file: str = ".env") -> str | None:
     return os.environ.get(KEY_VAR) or None
 
 
-def makes_sound(name: str, args: dict[str, Any]) -> bool:
-    return name in SOUND_TOOLS or (name == "play_gesture" and args.get("name") in MUSIC_GESTURES)
+def makes_sound(name: str, args: dict[str, Any], music_gestures: frozenset[str] = MUSIC_GESTURES) -> bool:
+    return name in SOUND_TOOLS or (name == "play_gesture" and args.get("name") in music_gestures)
 
 
 def supports_async_tools(model: str) -> bool:
@@ -484,6 +486,7 @@ class GeminiPepper:
         self.rt: Any = None
         self.speech = SpeechFilter()
         self.background_tools: frozenset[str] = frozenset()  # NON_BLOCKING: results go back SILENT
+        self.music_gestures: frozenset[str] = MUSIC_GESTURES
         self._tool_tasks: set[asyncio.Task] = set()
         # Model turns, to know whether a tool's caller already said something.
         self._turn = 0
@@ -535,6 +538,7 @@ class GeminiPepper:
             declarations = tool_declarations(tools, non_blocking=supports_async_tools(self.args.model))
             self.background_tools = frozenset(d["name"] for d in declarations if d.get("behavior"))
             self.speech = SpeechFilter([*(d["name"] for d in declarations), *rt.gestures.names()])
+            self.music_gestures = rt.gestures.music_gestures()
             self.rt = rt
             rt.voice_agent = f"Gemini Live ({self.args.model})"  # shown on the dashboard
             if rt.mic is None:
@@ -834,7 +838,7 @@ class GeminiPepper:
             started = time.monotonic()
             # Mute before the sound starts; the task id (and its task.finished) only exists after.
             pending = f"call:{fc.id}"
-            sound = makes_sound(fc.name, args)
+            sound = makes_sound(fc.name, args, self.music_gestures)
             if sound:
                 self.gate.start(pending, max_s=10.0)
             try:
@@ -850,7 +854,9 @@ class GeminiPepper:
                     self.gate.finish(pending)
             task_id = response.get("task_id")
             if sound and task_id:
-                self.gate.start(f"task:{task_id}")
+                # A dance runs past the gate's default cap; hold the mute for its whole length.
+                length = (response.get("gesture") or {}).get("duration_s")
+                self.gate.start(f"task:{task_id}", max_s=float(length) + 5.0 if length else None)
             self._show(
                 "tool",
                 f"{fc.name}({json.dumps(args)}) -> {json.dumps(response, default=str)[:160]} "

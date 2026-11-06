@@ -1,0 +1,1424 @@
+{
+ "source": "Choregraphe animation library (O. Landais, 2019) and dance apps from pepperApplications (IMERIR); imported by pepper_mcp.choregraphe_import",
+ "animations": [
+  {
+   "name": "back_to_stand_1",
+   "file": "animations/00-BackToStand/Back_to_stand_01.qianim",
+   "description": "return to the standing pose naturally (variant 1)",
+   "tags": [
+    "library",
+    "utility"
+   ],
+   "return_to_rest": false,
+   "duration_s": 1.24
+  },
+  {
+   "name": "back_to_stand_2",
+   "file": "animations/00-BackToStand/Back_to_stand_02.qianim",
+   "description": "return to the standing pose naturally (variant 2)",
+   "tags": [
+    "library",
+    "utility"
+   ],
+   "return_to_rest": false,
+   "duration_s": 1.0
+  },
+  {
+   "name": "back_to_stand_3",
+   "file": "animations/00-BackToStand/Back_to_stand_03.qianim",
+   "description": "return to the standing pose naturally (variant 3)",
+   "tags": [
+    "library",
+    "utility"
+   ],
+   "return_to_rest": false,
+   "duration_s": 2.04
+  },
+  {
+   "name": "hello_1",
+   "file": "animations/01-Hello/Hello_01.qianim",
+   "description": "say hello with the arms and head (variant 1)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 7.72
+  },
+  {
+   "name": "hello_2",
+   "file": "animations/01-Hello/Hello_02.qianim",
+   "description": "say hello with the arms and head (variant 2)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.56
+  },
+  {
+   "name": "hello_3",
+   "file": "animations/01-Hello/Hello_03.qianim",
+   "description": "say hello with the arms and head (variant 3)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.76
+  },
+  {
+   "name": "hello_4",
+   "file": "animations/01-Hello/Hello_04.qianim",
+   "description": "say hello with the arms and head (variant 4)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 6.24
+  },
+  {
+   "name": "hello_5",
+   "file": "animations/01-Hello/Hello_05.qianim",
+   "description": "say hello with the arms and head (variant 5)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.56
+  },
+  {
+   "name": "hello_6",
+   "file": "animations/01-Hello/Hello_06.qianim",
+   "description": "say hello with the arms and head (variant 6)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 6.0
+  },
+  {
+   "name": "hello_7",
+   "file": "animations/01-Hello/Hello_07.qianim",
+   "description": "say hello with the arms and head (variant 7)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 8.12
+  },
+  {
+   "name": "hello_8",
+   "file": "animations/01-Hello/Hello_08.qianim",
+   "description": "say hello with the arms and head (variant 8)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.08
+  },
+  {
+   "name": "hello_9",
+   "file": "animations/01-Hello/Hello_09.qianim",
+   "description": "say hello with the arms and head (variant 9)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.56
+  },
+  {
+   "name": "hello_10",
+   "file": "animations/01-Hello/Hello_10.qianim",
+   "description": "say hello with the arms and head (variant 10)",
+   "tags": [
+    "library",
+    "social",
+    "greeting"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.76
+  },
+  {
+   "name": "show_body_1",
+   "file": "animations/02-Body_Parts/Show_Body_01.qianim",
+   "description": "present its whole body (variant 1)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.16
+  },
+  {
+   "name": "show_body_2",
+   "file": "animations/02-Body_Parts/Show_Body_02.qianim",
+   "description": "present its whole body (variant 2)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.72
+  },
+  {
+   "name": "show_body_3",
+   "file": "animations/02-Body_Parts/Show_Body_03.qianim",
+   "description": "present its whole body (variant 3)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.16
+  },
+  {
+   "name": "show_bumper_left",
+   "file": "animations/02-Body_Parts/Show_Bumper_Left_01.qianim",
+   "description": "show the left bumper (front left of the base)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.48
+  },
+  {
+   "name": "show_bumper_right",
+   "file": "animations/02-Body_Parts/Show_Bumper_Right_01.qianim",
+   "description": "show the right bumper (front right of the base)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.48
+  },
+  {
+   "name": "show_hand_both_1",
+   "file": "animations/02-Body_Parts/Show_Hand_Both_01.qianim",
+   "description": "show both hands (variant 1)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.52
+  },
+  {
+   "name": "show_hand_both_2",
+   "file": "animations/02-Body_Parts/Show_Hand_Both_02.qianim",
+   "description": "show both hands (variant 2)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.12
+  },
+  {
+   "name": "show_hand_left_1",
+   "file": "animations/02-Body_Parts/Show_Hand_Left_01.qianim",
+   "description": "show the left hand (variant 1)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.36
+  },
+  {
+   "name": "show_hand_left_2",
+   "file": "animations/02-Body_Parts/Show_Hand_Left_02.qianim",
+   "description": "show the left hand (variant 2)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 1.76
+  },
+  {
+   "name": "show_hand_right_1",
+   "file": "animations/02-Body_Parts/Show_Hand_Right_01.qianim",
+   "description": "show the right hand (variant 1)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.36
+  },
+  {
+   "name": "show_hand_right_2",
+   "file": "animations/02-Body_Parts/Show_Hand_Right_02.qianim",
+   "description": "show the right hand (variant 2)",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 1.76
+  },
+  {
+   "name": "show_head",
+   "file": "animations/02-Body_Parts/Show_Head_01.qianim",
+   "description": "show its head",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.6
+  },
+  {
+   "name": "show_micro",
+   "file": "animations/02-Body_Parts/Show_Micro_01.qianim",
+   "description": "show the microphones on top of its head",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.16
+  },
+  {
+   "name": "show_self",
+   "file": "animations/02-Body_Parts/Show_Self_01.qianim",
+   "description": "point at itself ('me')",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.24
+  },
+  {
+   "name": "show_shoulders",
+   "file": "animations/02-Body_Parts/Show_Shoulders_01.qianim",
+   "description": "show its shoulders",
+   "tags": [
+    "library",
+    "deictic",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.56
+  },
+  {
+   "name": "show_tablet_1",
+   "file": "animations/03-Tablet/Show_Tablet_01.qianim",
+   "description": "present what is on the chest tablet (variant 1)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.0
+  },
+  {
+   "name": "show_tablet_2",
+   "file": "animations/03-Tablet/Show_Tablet_02.qianim",
+   "description": "present what is on the chest tablet (variant 2)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.64
+  },
+  {
+   "name": "show_tablet_3",
+   "file": "animations/03-Tablet/Show_Tablet_03.qianim",
+   "description": "present what is on the chest tablet (variant 3)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.88
+  },
+  {
+   "name": "show_tablet_4",
+   "file": "animations/03-Tablet/Show_Tablet_04.qianim",
+   "description": "present what is on the chest tablet (variant 4)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.6
+  },
+  {
+   "name": "show_tablet_5",
+   "file": "animations/03-Tablet/Show_Tablet_05.qianim",
+   "description": "present what is on the chest tablet (variant 5)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.08
+  },
+  {
+   "name": "show_tablet_6",
+   "file": "animations/03-Tablet/Show_Tablet_06.qianim",
+   "description": "present what is on the chest tablet (variant 6)",
+   "tags": [
+    "library",
+    "deictic",
+    "tablet"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.68
+  },
+  {
+   "name": "make_space_1",
+   "file": "animations/04-Make_Space/Make_Space_01.qianim",
+   "description": "ask people to step back and make room (variant 1)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 6.48
+  },
+  {
+   "name": "make_space_2",
+   "file": "animations/04-Make_Space/Make_Space_02.qianim",
+   "description": "ask people to step back and make room (variant 2)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.72
+  },
+  {
+   "name": "make_space_3",
+   "file": "animations/04-Make_Space/Make_Space_03.qianim",
+   "description": "ask people to step back and make room (variant 3)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.84
+  },
+  {
+   "name": "make_space_4",
+   "file": "animations/04-Make_Space/Make_Space_04.qianim",
+   "description": "ask people to step back and make room (variant 4)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.24
+  },
+  {
+   "name": "enumeration_1",
+   "file": "animations/05-Enumeration/Enumeration_01.qianim",
+   "description": "list points one after another while explaining (variant 1)",
+   "tags": [
+    "library",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.4
+  },
+  {
+   "name": "enumeration_2",
+   "file": "animations/05-Enumeration/Enumeration_02.qianim",
+   "description": "list points one after another while explaining (variant 2)",
+   "tags": [
+    "library",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.12
+  },
+  {
+   "name": "enumeration_3",
+   "file": "animations/05-Enumeration/Enumeration_03.qianim",
+   "description": "list points one after another while explaining (variant 3)",
+   "tags": [
+    "library",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.08
+  },
+  {
+   "name": "enumeration_4",
+   "file": "animations/05-Enumeration/Enumeration_04.qianim",
+   "description": "list points one after another while explaining (variant 4)",
+   "tags": [
+    "library",
+    "explain"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.84
+  },
+  {
+   "name": "check_left",
+   "file": "animations/06-Solitaries/CheckLeft_01.qianim",
+   "description": "check something on its left",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.64
+  },
+  {
+   "name": "check_right",
+   "file": "animations/06-Solitaries/CheckRight_01.qianim",
+   "description": "check something on its right",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.64
+  },
+  {
+   "name": "funny_1",
+   "file": "animations/06-Solitaries/Funny_01.qianim",
+   "description": "small funny fidget (variant 1)",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.44
+  },
+  {
+   "name": "funny_2",
+   "file": "animations/06-Solitaries/Funny_02.qianim",
+   "description": "small funny fidget (variant 2)",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.2
+  },
+  {
+   "name": "look_at_sides_left",
+   "file": "animations/06-Solitaries/LookAtSidesLeft_01.qianim",
+   "description": "look to both sides, starting left",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.2
+  },
+  {
+   "name": "look_at_sides_right",
+   "file": "animations/06-Solitaries/LookAtSidesRight_01.qianim",
+   "description": "look to both sides, starting right",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.2
+  },
+  {
+   "name": "look_bumpers_left",
+   "file": "animations/06-Solitaries/LookBumpersLeft_01.qianim",
+   "description": "look down at the left bumper",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.88
+  },
+  {
+   "name": "look_bumpers_right",
+   "file": "animations/06-Solitaries/LookBumpersRight_01.qianim",
+   "description": "look down at the right bumper",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.88
+  },
+  {
+   "name": "look_far_left",
+   "file": "animations/06-Solitaries/LookFarLeft_01.qianim",
+   "description": "look far away to the left",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.24
+  },
+  {
+   "name": "look_far_right",
+   "file": "animations/06-Solitaries/LookFarRight_01.qianim",
+   "description": "look far away to the right",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.24
+  },
+  {
+   "name": "look_hand_left",
+   "file": "animations/06-Solitaries/LookHandLeft_01.qianim",
+   "description": "look at its left hand",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.52
+  },
+  {
+   "name": "look_hand_right",
+   "file": "animations/06-Solitaries/LookHandRight_01.qianim",
+   "description": "look at its right hand",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.52
+  },
+  {
+   "name": "look_left",
+   "file": "animations/06-Solitaries/LookLeft_01.qianim",
+   "description": "look to the left",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.0
+  },
+  {
+   "name": "look_right",
+   "file": "animations/06-Solitaries/LookRight_01.qianim",
+   "description": "look to the right",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.0
+  },
+  {
+   "name": "looking_around",
+   "file": "animations/06-Solitaries/Looking_around_01.qianim",
+   "description": "look around",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 8.04
+  },
+  {
+   "name": "looking_around_wide",
+   "file": "animations/06-Solitaries/Looking_around_wide_01.qianim",
+   "description": "look around widely",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 5.56
+  },
+  {
+   "name": "motor_sound_left",
+   "file": "animations/06-Solitaries/MotorSoundLeft_01.qianim",
+   "description": "listen to the motor of its left arm",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 8.76
+  },
+  {
+   "name": "motor_sound_right",
+   "file": "animations/06-Solitaries/MotorSoundRight_01.qianim",
+   "description": "listen to the motor of its right arm",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 8.76
+  },
+  {
+   "name": "play_with_hand_left",
+   "file": "animations/06-Solitaries/PlayWithHandLeft_01.qianim",
+   "description": "play with its left hand",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 9.2
+  },
+  {
+   "name": "play_with_hand_right",
+   "file": "animations/06-Solitaries/PlayWithHandRight_01.qianim",
+   "description": "play with its right hand",
+   "tags": [
+    "library",
+    "idle"
+   ],
+   "return_to_rest": true,
+   "duration_s": 9.2
+  },
+  {
+   "name": "nice_reaction_1",
+   "file": "animations/07-Reactions/NiceReaction_01.qianim",
+   "description": "pleased, happy reaction (variant 1)",
+   "tags": [
+    "library",
+    "emotion"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.44
+  },
+  {
+   "name": "nice_reaction_2",
+   "file": "animations/07-Reactions/NiceReaction_02.qianim",
+   "description": "pleased, happy reaction (variant 2)",
+   "tags": [
+    "library",
+    "emotion"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.2
+  },
+  {
+   "name": "sad_reaction_1",
+   "file": "animations/07-Reactions/SadReaction_01.qianim",
+   "description": "sad, disappointed reaction (variant 1)",
+   "tags": [
+    "library",
+    "emotion"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.84
+  },
+  {
+   "name": "sad_reaction_2",
+   "file": "animations/07-Reactions/SadReaction_02.qianim",
+   "description": "sad, disappointed reaction (variant 2)",
+   "tags": [
+    "library",
+    "emotion"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.08
+  },
+  {
+   "name": "attract_left_1",
+   "file": "animations/08-Attract/Attract_L01.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 1)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.08
+  },
+  {
+   "name": "attract_left_2",
+   "file": "animations/08-Attract/Attract_L02.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 2)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.96
+  },
+  {
+   "name": "attract_left_3",
+   "file": "animations/08-Attract/Attract_L03.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 3)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.2
+  },
+  {
+   "name": "attract_left_4",
+   "file": "animations/08-Attract/Attract_L04.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 4)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.12
+  },
+  {
+   "name": "attract_left_5",
+   "file": "animations/08-Attract/Attract_L05.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 5)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.08
+  },
+  {
+   "name": "attract_left_6",
+   "file": "animations/08-Attract/Attract_L06.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 6)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.04
+  },
+  {
+   "name": "attract_left_7",
+   "file": "animations/08-Attract/Attract_L07.qianim",
+   "description": "beckon someone to come closer with the left arm (variant 7)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.32
+  },
+  {
+   "name": "attract_right_1",
+   "file": "animations/08-Attract/Attract_R01.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 1)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 2.08
+  },
+  {
+   "name": "attract_right_2",
+   "file": "animations/08-Attract/Attract_R02.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 2)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.96
+  },
+  {
+   "name": "attract_right_3",
+   "file": "animations/08-Attract/Attract_R03.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 3)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.2
+  },
+  {
+   "name": "attract_right_4",
+   "file": "animations/08-Attract/Attract_R04.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 4)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.12
+  },
+  {
+   "name": "attract_right_5",
+   "file": "animations/08-Attract/Attract_R05.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 5)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.08
+  },
+  {
+   "name": "attract_right_6",
+   "file": "animations/08-Attract/Attract_R06.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 6)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.04
+  },
+  {
+   "name": "attract_right_7",
+   "file": "animations/08-Attract/Attract_R07.qianim",
+   "description": "beckon someone to come closer with the right arm (variant 7)",
+   "tags": [
+    "library",
+    "social"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.32
+  },
+  {
+   "name": "point_far_front_left",
+   "file": "animations/09-Orientation/PointFrontL_01.qianim",
+   "description": "point into the distance straight ahead with the left arm",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.84
+  },
+  {
+   "name": "point_far_front_right",
+   "file": "animations/09-Orientation/PointFrontR_01.qianim",
+   "description": "point into the distance straight ahead with the right arm",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.84
+  },
+  {
+   "name": "point_far_half_left",
+   "file": "animations/09-Orientation/PointHalfL_01.qianim",
+   "description": "point into the distance to the side (~60°) on its left",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.88
+  },
+  {
+   "name": "point_far_half_right",
+   "file": "animations/09-Orientation/PointHalfR_01.qianim",
+   "description": "point into the distance to the side (~60°) on its right",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.88
+  },
+  {
+   "name": "point_far_medium_left",
+   "file": "animations/09-Orientation/PointMediumL_01.qianim",
+   "description": "point into the distance diagonally (~30°) to its left",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.88
+  },
+  {
+   "name": "point_far_medium_right",
+   "file": "animations/09-Orientation/PointMediumR_01.qianim",
+   "description": "point into the distance diagonally (~30°) to its right",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 4.88
+  },
+  {
+   "name": "point_near_front_left",
+   "file": "animations/09-Orientation/PointShortFrontL_01.qianim",
+   "description": "point at something close by straight ahead with the left arm",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.24
+  },
+  {
+   "name": "point_near_front_right",
+   "file": "animations/09-Orientation/PointShortFrontR_01.qianim",
+   "description": "point at something close by straight ahead with the right arm",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.24
+  },
+  {
+   "name": "point_near_half_left",
+   "file": "animations/09-Orientation/PointShortHalfL_01.qianim",
+   "description": "point at something close by to the side (~60°) on its left",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.24
+  },
+  {
+   "name": "point_near_half_right",
+   "file": "animations/09-Orientation/PointShortHalfR_01.qianim",
+   "description": "point at something close by to the side (~60°) on its right",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.24
+  },
+  {
+   "name": "point_near_medium_left",
+   "file": "animations/09-Orientation/PointShortMediumL_01.qianim",
+   "description": "point at something close by diagonally (~30°) to its left",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.4
+  },
+  {
+   "name": "point_near_medium_right",
+   "file": "animations/09-Orientation/PointShortMediumR_01.qianim",
+   "description": "point at something close by diagonally (~30°) to its right",
+   "tags": [
+    "library",
+    "deictic"
+   ],
+   "return_to_rest": true,
+   "duration_s": 3.4
+  },
+  {
+   "name": "loading_left_1",
+   "file": "animations/10-Loading/PoseLeft_01.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning left, variant 1)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 3.48
+  },
+  {
+   "name": "loading_left_2",
+   "file": "animations/10-Loading/PoseLeft_02.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning left, variant 2)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 4.76
+  },
+  {
+   "name": "loading_left_3",
+   "file": "animations/10-Loading/PoseLeft_03.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning left, variant 3)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 3.32
+  },
+  {
+   "name": "loading_left_4",
+   "file": "animations/10-Loading/PoseLeft_04.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning left, variant 4)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 5.64
+  },
+  {
+   "name": "loading_right_1",
+   "file": "animations/10-Loading/PoseRight_01.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning right, variant 1)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 3.48
+  },
+  {
+   "name": "loading_right_2",
+   "file": "animations/10-Loading/PoseRight_02.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning right, variant 2)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 4.76
+  },
+  {
+   "name": "loading_right_3",
+   "file": "animations/10-Loading/PoseRight_03.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning right, variant 3)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 3.32
+  },
+  {
+   "name": "loading_right_4",
+   "file": "animations/10-Loading/PoseRight_04.qianim",
+   "description": "patient waiting pose while something loads; chain several (leaning right, variant 4)",
+   "tags": [
+    "library",
+    "waiting"
+   ],
+   "return_to_rest": false,
+   "duration_s": 5.64
+  }
+ ],
+ "dances": [
+  {
+   "name": "dance_asereje",
+   "file": "dances/dance_asereje.qianim",
+   "title": "Asereje (The Ketchup Song)",
+   "duration_s": 71.04,
+   "music": "dances/dance_asereje.ogg",
+   "music_offset_s": 0.56,
+   "description": "dance to Asereje (The Ketchup Song) (1.2 min, with music)"
+  },
+  {
+   "name": "dance_knights",
+   "file": "dances/dance_knights.qianim",
+   "title": "Dance of the Knights (Prokofiev, Romeo and Juliet)",
+   "duration_s": 68.49,
+   "music": "dances/dance_knights.ogg",
+   "music_offset_s": 0.04,
+   "description": "dance to Dance of the Knights (Prokofiev, Romeo and Juliet) (1.1 min, with music)"
+  },
+  {
+   "name": "dance_reed_flutes",
+   "file": "dances/dance_reed_flutes.qianim",
+   "title": "Dance of the Reed Flutes (Tchaikovsky, The Nutcracker)",
+   "duration_s": 85.75,
+   "music": "dances/dance_reed_flutes.ogg",
+   "music_offset_s": 0.036,
+   "description": "dance to Dance of the Reed Flutes (Tchaikovsky, The Nutcracker) (1.4 min, with music)"
+  },
+  {
+   "name": "dance_dango",
+   "file": "dances/dance_dango.qianim",
+   "title": "Dango 3 Kyodai (Japanese children's song)",
+   "duration_s": 54.0,
+   "music": "dances/dance_dango.ogg",
+   "music_offset_s": 1.867,
+   "description": "dance to Dango 3 Kyodai (Japanese children's song) (54 s, with music)"
+  },
+  {
+   "name": "dance_hungarian",
+   "file": "dances/dance_hungarian.qianim",
+   "title": "Hungarian Dance (Brahms)",
+   "duration_s": 60.0,
+   "music": "dances/dance_hungarian.ogg",
+   "music_offset_s": 3.233,
+   "description": "dance to Hungarian Dance (Brahms) (1.0 min, with music)"
+  },
+  {
+   "name": "dance_gangnam_style",
+   "file": "dances/dance_gangnam_style.qianim",
+   "title": "Gangnam Style (PSY)",
+   "duration_s": 96.19,
+   "music": "dances/dance_gangnam_style.ogg",
+   "music_offset_s": 0.04,
+   "description": "dance to Gangnam Style (PSY) (1.6 min, with music)"
+  },
+  {
+   "name": "dance_la_bamba",
+   "file": "dances/dance_la_bamba.qianim",
+   "title": "La Bamba",
+   "duration_s": 50.5,
+   "music": "dances/dance_la_bamba.ogg",
+   "music_offset_s": 1.733,
+   "description": "dance to La Bamba (50 s, with music)"
+  },
+  {
+   "name": "dance_relax",
+   "file": "dances/dance_relax.qianim",
+   "title": "Relax, Take It Easy (Mika)",
+   "duration_s": 86.04,
+   "music": "dances/dance_relax.ogg",
+   "music_offset_s": 0.04,
+   "description": "dance to Relax, Take It Easy (Mika) (1.4 min, with music)"
+  },
+  {
+   "name": "dance_walk_this_way",
+   "file": "dances/dance_walk_this_way.qianim",
+   "title": "Walk This Way (Aerosmith)",
+   "duration_s": 79.6,
+   "music": "dances/dance_walk_this_way.ogg",
+   "music_offset_s": 0.04,
+   "description": "dance to Walk This Way (Aerosmith) (1.3 min, with music)"
+  },
+  {
+   "name": "dance_date",
+   "file": "dances/dance_date.qianim",
+   "title": "Date Dance",
+   "duration_s": 109.68,
+   "music": "dances/dance_date.ogg",
+   "music_offset_s": 0.04,
+   "description": "dance to Date Dance (1.8 min, with music)"
+  },
+  {
+   "name": "dance_disco",
+   "file": "dances/dance_disco.qianim",
+   "title": "short disco moves",
+   "duration_s": 16.48,
+   "music": null,
+   "music_offset_s": 0.0,
+   "description": "short disco moves (16 s, no music)"
+  }
+ ],
+ "groups": [
+  {
+   "name": "greeting",
+   "description": "say hello, a random one of 10 greeting animations",
+   "tags": [
+    "social",
+    "greeting"
+   ],
+   "members": [
+    "hello_1",
+    "hello_2",
+    "hello_3",
+    "hello_4",
+    "hello_5",
+    "hello_6",
+    "hello_7",
+    "hello_8",
+    "hello_9",
+    "hello_10"
+   ]
+  },
+  {
+   "name": "back_to_stand",
+   "description": "return to the standing pose naturally (random variant)",
+   "tags": [
+    "utility"
+   ],
+   "members": [
+    "back_to_stand_1",
+    "back_to_stand_2",
+    "back_to_stand_3"
+   ]
+  },
+  {
+   "name": "show_tablet",
+   "description": "present what is on the chest tablet (random variant)",
+   "tags": [
+    "deictic",
+    "tablet"
+   ],
+   "members": [
+    "show_tablet_1",
+    "show_tablet_2",
+    "show_tablet_3",
+    "show_tablet_4",
+    "show_tablet_5",
+    "show_tablet_6"
+   ]
+  },
+  {
+   "name": "make_space",
+   "description": "ask people to step back and make room, e.g. before a dance (random variant)",
+   "tags": [
+    "social"
+   ],
+   "members": [
+    "make_space_1",
+    "make_space_2",
+    "make_space_3",
+    "make_space_4"
+   ]
+  },
+  {
+   "name": "enumerate",
+   "description": "list points one after another while explaining (random variant)",
+   "tags": [
+    "explain"
+   ],
+   "members": [
+    "enumeration_1",
+    "enumeration_2",
+    "enumeration_3",
+    "enumeration_4"
+   ]
+  },
+  {
+   "name": "idle",
+   "description": "small idle fidget: look around, play with a hand… (random; leave 15-30 s between them)",
+   "tags": [
+    "idle"
+   ],
+   "members": [
+    "check_left",
+    "check_right",
+    "funny_1",
+    "funny_2",
+    "look_at_sides_left",
+    "look_at_sides_right",
+    "look_bumpers_left",
+    "look_bumpers_right",
+    "look_far_left",
+    "look_far_right",
+    "look_hand_left",
+    "look_hand_right",
+    "look_left",
+    "look_right",
+    "looking_around",
+    "looking_around_wide",
+    "motor_sound_left",
+    "motor_sound_right",
+    "play_with_hand_left",
+    "play_with_hand_right"
+   ]
+  },
+  {
+   "name": "nice_reaction",
+   "description": "pleased, happy reaction (random variant)",
+   "tags": [
+    "emotion"
+   ],
+   "members": [
+    "nice_reaction_1",
+    "nice_reaction_2"
+   ]
+  },
+  {
+   "name": "sad_reaction",
+   "description": "sad, disappointed reaction (random variant)",
+   "tags": [
+    "emotion"
+   ],
+   "members": [
+    "sad_reaction_1",
+    "sad_reaction_2"
+   ]
+  },
+  {
+   "name": "attract",
+   "description": "beckon someone to come closer (random variant, either arm)",
+   "tags": [
+    "social"
+   ],
+   "members": [
+    "attract_left_1",
+    "attract_left_2",
+    "attract_left_3",
+    "attract_left_4",
+    "attract_left_5",
+    "attract_left_6",
+    "attract_left_7",
+    "attract_right_1",
+    "attract_right_2",
+    "attract_right_3",
+    "attract_right_4",
+    "attract_right_5",
+    "attract_right_6",
+    "attract_right_7"
+   ]
+  },
+  {
+   "name": "loading",
+   "description": "patient waiting pose while something takes time (random variant)",
+   "tags": [
+    "waiting"
+   ],
+   "members": [
+    "loading_left_1",
+    "loading_left_2",
+    "loading_left_3",
+    "loading_left_4",
+    "loading_right_1",
+    "loading_right_2",
+    "loading_right_3",
+    "loading_right_4"
+   ]
+  },
+  {
+   "name": "dance",
+   "description": "dance a whole song with music (random choice of the music dances)",
+   "tags": [
+    "dance",
+    "fun"
+   ],
+   "members": [
+    "dance_asereje",
+    "dance_knights",
+    "dance_reed_flutes",
+    "dance_dango",
+    "dance_hungarian",
+    "dance_gangnam_style",
+    "dance_la_bamba",
+    "dance_relax",
+    "dance_walk_this_way",
+    "dance_date"
+   ]
+  }
+ ]
+}

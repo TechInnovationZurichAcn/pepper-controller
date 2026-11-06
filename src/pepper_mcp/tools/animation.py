@@ -28,20 +28,22 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
         return {"count": len(items), "animations": items[:limit], "tags": TAGS}
 
     @tool(mcp, ACTION)
-    def play_gesture(name: Annotated[str, Field(description="see list_gestures: high_five, wave, celebrate, nod, shake_head, hug_open, point_forward, bow, arms_down, sixty_seven, clown_dance or a user-defined one")],
+    def play_gesture(name: Annotated[str, Field(description="see list_gestures: high_five, wave, celebrate, nod, shake_head, hug_open, point_forward, bow, arms_down, sixty_seven, clown_dance; random-variant groups greeting, attract, show_tablet, enumerate, make_space, nice_reaction, sad_reaction, idle, loading, back_to_stand, dance; dances dance_gangnam_style, dance_la_bamba, dance_relax…; pointing point_far_front_left, point_near_half_right…; or a user-defined one")],
                      wait: bool = False,
-                     params: Annotated[dict[str, Any] | None, Field(description="gesture parameters, e.g. {\"duration_s\": 10} for dances, {\"phrase\": \"Up top!\"} for high_five")] = None) -> dict[str, Any]:
-        """Play a custom gesture from this server's registry (keyframe or procedural). Only one
-        gesture runs at a time; a new one stops the previous."""
+                     params: Annotated[dict[str, Any] | None, Field(description="gesture parameters, e.g. {\"duration_s\": 10} for clown_dance, {\"phrase\": \"Up top!\"} for high_five, {\"music\": false} for a silent dance, {\"variant\": \"hello_3\"} for a group")] = None) -> dict[str, Any]:
+        """Play a custom gesture from this server's registry (keyframe, procedural, Choregraphe
+        animation or dance with music). Only one gesture runs at a time; a new one stops the
+        previous. stop_motion ends a dance and its music."""
         gesture = rt.gestures.get(name)
         task = rt.tasks.run("gesture", name, lambda: rt.gestures.play(name, params or {}),
                             cancel=lambda: rt.gestures.stop_all())
         return task_result(task, wait, gesture.duration_s + 10) | {"gesture": gesture.to_dict()}
 
     @tool(mcp, READ_ONLY)
-    def list_gestures() -> dict[str, Any]:
-        """Available custom gestures with description, duration and (for keyframe ones) the keyframes."""
-        items = rt.gestures.list()
+    def list_gestures(tag: Annotated[str | None, Field(description="only gestures with this tag: dance, group, greeting, deictic, emotion, idle, social, explain, library…")] = None) -> dict[str, Any]:
+        """Available custom gestures with description, duration, tags and (for keyframe ones) the
+        keyframes; groups list their variants."""
+        items = rt.gestures.list(tag)
         return {"count": len(items), "gestures": items}
 
     @tool(mcp, ACTION)

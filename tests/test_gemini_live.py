@@ -186,6 +186,28 @@ async def test_gestures_never_mute_the_mic_so_pepper_hears_while_moving() -> Non
         bridge.gate._quiet_at = 0.0
 
 
+async def test_music_gestures_come_from_the_registry_and_mute_for_the_whole_dance() -> None:
+    from types import SimpleNamespace
+
+    async with connected() as client:
+        music = client.rt.gestures.music_gestures()
+        assert "clown_dance" in music and not {"wave", "nod", "hello_1"} & music
+        assert makes_sound("play_gesture", {"name": "dance_x"}, frozenset({"dance_x"}))
+        assert not makes_sound("play_gesture", {"name": "dance_x"})  # default before the session starts
+
+    class Done:  # a 90 s dance task, already started
+        async def call_tool(self, name: str, args: dict[str, Any]) -> Any:
+            text = '{"task_id": "t-dance", "gesture": {"name": "dance_x", "duration_s": 90.0}}'
+            return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], is_error=False,
+                                   structured_content=None)
+
+    bridge = _bridge()
+    bridge.music_gestures = frozenset({"dance_x"})
+    await bridge._run_tools(RecordingSession(), Done(), None, [Call("play_gesture", {"name": "dance_x"})])
+    # Regression: the gate's 30 s default cap unmuted the mic a minute before the song ended.
+    assert bridge.gate._active["task:t-dance"] - time.monotonic() > 90.0
+
+
 async def test_tool_called_before_any_words_gets_a_turn_to_answer() -> None:
     # "hello" → the model calls `wave` first and waits for the result before it speaks: a SILENT
     # result would leave the greeting unanswered.

@@ -11,11 +11,13 @@ from pepper_mcp.reflexes.base import Reflex, ReflexManager
 from pepper_mcp.reflexes.battery import LowBatteryReflex
 from pepper_mcp.reflexes.greet import GreetReflex
 from pepper_mcp.reflexes.high_five import HighFiveReflex
+from pepper_mcp.reflexes.idle import IdleReflex
 from pepper_mcp.reflexes.touch import TouchReflex
 
 
 def builtin_reflexes(rt) -> list[Reflex]:  # type: ignore[no-untyped-def]
-    return [AttentionReflex(rt), HighFiveReflex(rt), GreetReflex(rt), TouchReflex(rt), LowBatteryReflex(rt)]
+    return [AttentionReflex(rt), HighFiveReflex(rt), GreetReflex(rt), TouchReflex(rt), LowBatteryReflex(rt),
+            IdleReflex(rt)]
 
 
 __all__ = ["Reflex", "ReflexManager", "builtin_reflexes"]

@@ -5,8 +5,8 @@ Pepper's own head microphone and camera, talks through its speakers, and moves t
 an MCP tool server that runs inside the same process.
 
 * **Every robot feature as a tool** – speech with gestures, camera snapshots,
-  people/face/touch/sound perception, base and joint motion, animations and custom gestures,
-  LEDs, tablet, tic-tac-toe, following, navigation and maps, behaviours. 107 tools and
+  people/face/touch/sound perception, base and joint motion, animations and custom gestures
+  (plus a 100-animation Choregraphe library and 11 whole-song dances with music), LEDs, tablet, tic-tac-toe, following, navigation and maps, behaviours. 107 tools and
   10 resources (no prompts), listed in [`docs/MCP_ENDPOINTS.md`](docs/MCP_ENDPOINTS.md);
   Gemini is offered 94 of the tools.
 * **Real-time by design** – the robot pushes audio and ALMemory events to the laptop. The
@@ -437,7 +437,7 @@ use Pepper elsewhere** (see [Persona, language and vocabulary](#persona-language
 Model, voice and the other Gemini options are in the [Configuration](#configuration) table.
 Pepper's mic sits next to its speakers and has no echo cancellation, so it is
 muted while Pepper makes any sound (Gemini's voice, NAOqi speech from reflexes, gestures with
-sounds) plus a short tail: talk after Pepper finishes; interrupting mid-sentence is not possible.
+sounds, dances with music for their whole length) plus a short tail: talk after Pepper finishes; interrupting mid-sentence is not possible.
 The free API tier has no Google Search quota, so search is not enabled.
 
 ### 13. Watch and test it
@@ -445,9 +445,10 @@ The free API tier has no Google Search quota, so search is not enabled.
 1. Open <http://localhost:8765/>: the control dashboard. Header: connection, battery,
    posture, people, speaking/hearing state, running tasks and a **STOP** button (also `Esc`).
    Below it: live camera (top/bottom/depth), head and base nudge pads, a say box and volume,
-   switches for every reflex (wave/greet, high five, attention, touch, battery), the Hearing card
+   switches for every reflex (greet, high five, attention, touch, battery, idle), the Hearing card
    (microphone and voice agent, with a switch to mute the mic), liveliness and autonomous abilities, tracking/follow and
-   perception extractors, one button per gesture, mood lights, the conversation panel (what
+   perception extractors, one button per gesture (the animation library shows up as its groups
+   such as `greeting`, plus the dances), mood lights, the conversation panel (what
    Gemini heard and said), sensors and a filterable event log.
    Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
    `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
@@ -562,10 +563,11 @@ Pepper really misheard, and the fix is usually standing closer (within about 1 m
 src/pepper_mcp/
   cli.py, config.py, server.py, runtime.py     robot options, settings, MCP server, wiring
   robot/        NAOqi wrappers (motion, speech, camera, audio_in, perception, …) + fake.py
-  reflexes/     attention, high_five, greet, touch_reaction, low_battery
+  reflexes/     attention, high_five, greet, touch_reaction, low_battery, idle
   tools/        MCP tools, one module per domain (auto-registered)
   games/        tic-tac-toe on the tablet
-  assets/       files served to the tablet (GIF, audio)
+  assets/       files served to the tablet (GIF, audio); animations/ + dances/ (Choregraphe
+                timelines) and choreography.json, written by choregraphe_import.py
   preview.py    MJPEG / live audio / SSE side channel; verify.py
   gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
   dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
@@ -579,8 +581,25 @@ pepper_maps.json  saved maps and spots (git-ignored, written at runtime)
 ```
 
 Extending: new tool domain → `tools/<name>.py` with `register(mcp, rt)`; new gesture →
-`robot/gestures.py` or the `define_gesture` tool at runtime; new reflex → subclass
+`robot/gestures.py` or the `define_gesture` tool at runtime; Choregraphe animations and dances →
+`python -m pepper_mcp.choregraphe_import <folder>` (see below); new reflex → subclass
 `reflexes.base.Reflex`.
+
+### Choregraphe animations and dances
+
+`src/pepper_mcp/assets/choreography.json` lists 100 Choregraphe `.qianim` animations (greetings,
+pointing, showing the tablet, idle fidgets, reactions…) and 11 dances, each a `play_gesture`
+name (full list in `docs/MCP_ENDPOINTS.md` §2.5). They were imported from the `03_Pepper`
+collection (Choregraphe animation library by O. Landais, dance apps from IMERIR's
+pepperApplications):
+
+```bash
+python -m pepper_mcp.choregraphe_import /path/to/03_Pepper   # rewrites assets/animations, assets/dances
+```
+
+The dance music (`assets/dances/*.ogg`, ~20 MB of commercial recordings) is git-ignored: on a
+fresh clone the dances run silently until you rerun the import. The tool flattens each dance's
+nested timelines into one `.qianim`, keeps the music offset and drops the base moves.
 
 ## Development
 

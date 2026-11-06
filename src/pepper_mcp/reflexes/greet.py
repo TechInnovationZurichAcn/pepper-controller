@@ -11,12 +11,13 @@ from pepper_mcp.robot.events import Event
 
 class GreetReflex(Reflex):
     name = "greet"
-    description = ("when a person appears within range after nobody was around, wave at them; "
-                   "optionally say a greeting phrase (set params.phrase)")
+    description = ("when a person appears within range after nobody was around, greet them with a "
+                   "random hello animation (params.gesture, e.g. 'wave'); optionally say params.phrase")
     triggers = ("person.appeared",)
-    # The server's own "wave" gesture rather than NAOqi's Hey_1: arm collision protection stops
-    # Hey_1 at shoulder height when the greeted person stands in front of the robot.
-    params: dict[str, Any] = {"phrase": "", "gesture": "wave",
+    # A server gesture rather than NAOqi's Hey_1: arm collision protection stops Hey_1 at shoulder
+    # height when the greeted person stands in front of the robot; server gestures switch it off.
+    # "greeting" picks one of the ten Choregraphe hello animations at random.
+    params: dict[str, Any] = {"phrase": "", "gesture": "greeting",
                               "max_distance_m": 2.5, "quiet_period_s": 20.0}
     cooldown_s = 8.0
     # Gemini gets person.appeared too and greets on its own; an automatic wave on top doubles it.

@@ -420,7 +420,7 @@ def test_move_relative_serialises_moves_and_reports_interruptions() -> None:
     assert results and results[0]["interrupted"] is True
 
 
-def test_greet_reflex_plays_wave_gesture(runtime) -> None:  # type: ignore[no-untyped-def]
+def test_greet_reflex_plays_a_random_greeting_animation(runtime) -> None:  # type: ignore[no-untyped-def]
     from pepper_mcp.robot.events import Event
 
     played: list[str] = []
@@ -428,7 +428,8 @@ def test_greet_reflex_plays_wave_gesture(runtime) -> None:  # type: ignore[no-un
     runtime.perception.people = lambda: []
     result = runtime.reflexes.get("greet").react(Event("person.appeared", {"person_id": 7, "distance_m": 1.2}))
     assert result == {"person_id": 7, "greeted": True}
-    assert played == ["wave"]
+    assert played == ["greeting"]
+    assert runtime.gestures.get("greeting").to_dict()["variants"][0].startswith("hello_")
 
 
 def _wait_for(cond, timeout_s: float = 2.0) -> None:  # type: ignore[no-untyped-def]

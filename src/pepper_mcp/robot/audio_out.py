@@ -63,6 +63,14 @@ class AudioOut:
         """Fire-and-forget (used by procedural gestures)."""
         self.play_async(source, loop=loop)
 
+    def load(self, source: str) -> int:
+        """Preload a file on the robot; :meth:`play_loaded_async` then starts it without the
+        decoding delay of ``playFile`` (dances start their music on a beat)."""
+        return int(self.player.loadFile(source))
+
+    def play_loaded_async(self, file_id: int) -> Any:
+        return RobotConnection.call_async(self.player, "play", int(file_id))
+
     def play_sine(self, frequency_hz: int, duration_s: float, volume: int = 50) -> None:
         self.player.playSine(int(frequency_hz), int(max(0, min(100, volume))), 0, float(duration_s))
 
@@ -78,7 +86,8 @@ class AudioOut:
 
     # ------------------------------------------------------------- upload
     def robot_asset_path(self, filename: str) -> str | None:
-        """Robot-side path of a bundled asset, uploading it on first use (needs SSH)."""
+        """Robot-side path of a bundled asset (may sit in a subfolder, e.g. ``dances/x.ogg``),
+        uploading it on first use (needs SSH)."""
         with self._lock:
             if filename in self._uploaded:
                 return self._uploaded[filename]
@@ -90,6 +99,10 @@ class AudioOut:
         except RobotError as exc:
             log.info("asset upload failed (%s); %s unavailable on the robot", exc, filename)
             return None
+        with self._lock:
+            # upload() caches under the basename; cache the asset path too so a subfolder asset
+            # is not uploaded again on every play
+            self._uploaded[filename] = remote
         return remote
 
     def _ssh_run(self, cmd: list[str], timeout_s: float) -> None:
