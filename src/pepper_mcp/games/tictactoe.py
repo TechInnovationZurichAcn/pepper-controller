@@ -26,6 +26,8 @@ SYMBOLS = ("X", "O")
 EMPTY = ""
 #: Pause before Pepper answers a tablet touch, so its move reads as a reply rather than a glitch.
 PEPPER_DELAY_S = 0.7
+#: holds the tablet while a board is shown
+OWNER = "tictactoe"
 
 Board = tuple[str, ...]
 

@@ -11,10 +11,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
-from pepper_mcp.games.tictactoe import static_board_html
+from pepper_mcp.games.tictactoe import OWNER, static_board_html
 from pepper_mcp.tools._common import ACTION, READ_ONLY, tool
-
-OWNER = "tictactoe"  # holds the tablet while a board is shown
 
 HINTS = {
     "interactive": "The board is on the tablet: the person taps a square and you answer automatically. "
@@ -89,10 +87,11 @@ def register(mcp, rt) -> None:  # type: ignore[no-untyped-def]
 
     @tool(mcp, ACTION)
     def tictactoe_stop(hide_tablet: bool = True) -> dict[str, Any]:
-        """End the tic-tac-toe game (e.g. the person wants to stop) and optionally clear the tablet."""
+        """End the tic-tac-toe game (e.g. the person wants to stop) and optionally clear the tablet
+        (it goes back to the gesture buttons when the operator pinned any)."""
         state = game.stop()
         if rt.tablet is not None:
             rt.tablet.release(OWNER)
-            if hide_tablet:
+            if hide_tablet and not rt.tablet_home.show():
                 rt.tablet.hide()
         return state

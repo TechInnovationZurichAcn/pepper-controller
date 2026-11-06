@@ -474,7 +474,8 @@ the server runs. The free API tier has no Google Search quota, so search is not 
    switches for every reflex (greet, high five, attention, touch, battery, idle), the Hearing card
    (microphone and voice agent, with a switch to mute the mic), liveliness and autonomous abilities, tracking/follow and
    perception extractors, one button per gesture (the animation library shows up as its groups
-   such as `greeting`, plus the dances), mood lights, the conversation panel (what
+   such as `greeting`, plus the dances; the `+` in a button's top-right corner puts that gesture
+   on Pepper's tablet as a big button visitors can press, `−` takes it off again), mood lights, the conversation panel (what
    Gemini heard and said), sensors and a filterable event log.
    Controls work from the laptop; another device (phone) needs `--preview-token <secret>` and
    `http://<laptop-ip>:8765/?token=<secret>`, otherwise it gets a view-only page (STOP still works).
@@ -484,7 +485,7 @@ the server runs. The free API tier has no Google Search quota, so search is not 
    back of its raised hand to finish it.
 4. Touch its head: a `touch.start` event, the eyes flash green and the head tilts briefly.
 5. Ask it to play tic-tac-toe: the board appears on the tablet; tap a square and Pepper answers
-   with its own move.
+   with its own move. 5 s after the game ends the tablet goes back to the gesture buttons, if any are pinned.
 
 ### 15. Shut down
 
@@ -598,6 +599,7 @@ src/pepper_mcp/
   preview.py    MJPEG / live audio / SSE side channel; verify.py
   gemini_live.py  `pepper-mcp-gemini`: Gemini Live voice/video agent on Pepper's own hardware
   dashboard.py  dashboard state + whitelisted actions; dashboard.html is the page
+  tablet_home.py  gesture buttons pinned to the tablet (tablet_gestures.html), back after a game
 docs/           MCP_ENDPOINTS.md (every tool/resource/event), ARCHITECTURE.md (design),
                 ROBOT_VERIFICATION.md (hardware checklist, firmware quirks)
 tests/          pytest suite against the fake robot

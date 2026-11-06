@@ -12,6 +12,9 @@
 * ``/status``            JSON status; ``/assets/<file>`` bundled assets (tablet GIFs)
 * ``/game/tictactoe``    tic-tac-toe page for Pepper's tablet; it polls ``/api/game/tictactoe`` and
                          POSTs ``/api/game/tictactoe/move`` ``{"cell": 1-9}`` and ``/api/game/tictactoe/new``
+* ``/tablet/gestures``   gesture buttons pinned from the dashboard, for Pepper's tablet; it polls
+                         ``/api/tablet/gestures`` and POSTs ``/api/tablet/gestures/play`` ``{"name"}``
+                         with the page's key (see :mod:`pepper_mcp.tablet_home`)
 
 Only the standard library is used so it never gets in the way of the MCP server.
 """
@@ -32,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
-from pepper_mcp import dashboard
+from pepper_mcp import dashboard, tablet_home
 from pepper_mcp.games import tictactoe
 from pepper_mcp.robot.audio_out import ASSETS_DIR
 from pepper_mcp.robot.connection import RobotError
@@ -142,6 +145,10 @@ class PreviewServer:
                         self._send(200, tictactoe.page_html(), "text/html; charset=utf-8")
                     elif path == GAME_API:
                         self._send(200, json.dumps(rt.tictactoe.state()).encode(), "application/json")
+                    elif path == tablet_home.PAGE_PATH:
+                        self._send(200, tablet_home.page_html(), "text/html; charset=utf-8")
+                    elif path == tablet_home.API_PATH:
+                        self._send(200, json.dumps(rt.tablet_home.state()).encode(), "application/json")
                     elif path == "/status":
                         self._send(200, json.dumps(rt.status(), default=str).encode(), "application/json")
                     elif path == "/events":
@@ -181,6 +188,9 @@ class PreviewServer:
                 path = self.path.split("?")[0]
                 if path.startswith(GAME_API + "/"):
                     server._game_post(self, path[len(GAME_API) + 1:])
+                    return
+                if path == tablet_home.API_PATH + "/play":
+                    server._tablet_gesture_post(self)
                     return
                 if not path.startswith("/api/action/"):
                     self._send(404, b"not found", "text/plain")
@@ -256,6 +266,37 @@ class PreviewServer:
         except (tictactoe.GameError, json.JSONDecodeError, ValueError) as exc:
             handler._send(409 if isinstance(exc, tictactoe.GameError) else 400,
                           json.dumps({"error": str(exc)}).encode(), "application/json")
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _tablet_gesture_post(self, handler: Any) -> None:
+        """A press on a gesture button on the tablet: plays the gesture, or stops it when it is the
+        one playing. Only the tablet has the key, and only pinned gestures can be played."""
+        denied = control_denied(handler.client_address[0], handler.headers, self.rt.settings.preview_token,
+                                json_body=True, open_to_lan=True)
+        home = self.rt.tablet_home
+        if not denied and not home.key_ok(handler.headers.get(tablet_home.KEY_HEADER)):
+            denied = "missing or wrong tablet key"
+        if denied:
+            handler._send(403, json.dumps({"error": denied}).encode(), "application/json")
+            return
+        try:
+            length = int(handler.headers.get("Content-Length") or 0)
+            if not 0 <= length <= MAX_BODY:
+                raise ValueError("invalid request body length")
+            args = json.loads(handler.rfile.read(length) or b"{}") if length else {}
+            name = args.get("name") if isinstance(args, dict) else None
+            if not isinstance(name, str) or not home.is_pinned(name):
+                raise ValueError("this gesture is not on the tablet")
+            if name in self.rt.gestures.active():
+                dashboard.run_action(self.rt, "stop_gesture", {})
+            else:
+                dashboard.run_action(self.rt, "gesture", {"name": name})
+            handler._send(200, json.dumps(home.state()).encode(), "application/json")
+        except (dashboard.ActionError, json.JSONDecodeError, ValueError) as exc:
+            handler._send(400, json.dumps({"error": str(exc)}).encode(), "application/json")
+        except RobotError as exc:
+            handler._send(409, json.dumps({"error": str(exc)}).encode(), "application/json")
         except (BrokenPipeError, ConnectionResetError):
             pass
 

@@ -75,14 +75,23 @@ section h2 .right{margin-left:auto;text-transform:none;letter-spacing:0}
 .grid-btn button{position:relative}
 .grid-btn button.playing{border-color:var(--ok);background:rgba(47,191,113,.14);box-shadow:0 0 0 1px var(--ok) inset}
 .grid-btn button.playing small{color:var(--ok)}
-.grid-btn button .eq{display:none;position:absolute;top:8px;right:8px;gap:2px;align-items:flex-end;height:12px}
+.grid-btn button .eq{display:none;position:absolute;top:8px;right:34px;gap:2px;align-items:flex-end;height:12px}
 .grid-btn button.playing .eq{display:inline-flex}
 .eq i{width:3px;height:100%;background:var(--ok);border-radius:1px;transform-origin:bottom;animation:eq .9s ease-in-out infinite}
 .eq i:nth-child(2){animation-delay:-.3s}.eq i:nth-child(3){animation-delay:-.6s}
 @keyframes eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
 .grid-btn button.playing:hover .eq{display:none}
-.grid-btn button .stopico{display:none;position:absolute;top:8px;right:8px;width:11px;height:11px;background:var(--bad);border-radius:2px}
+.grid-btn button .stopico{display:none;position:absolute;top:8px;right:34px;width:11px;height:11px;background:var(--bad);border-radius:2px}
 .grid-btn button.playing:hover .stopico{display:block}
+/* a gesture cell: the play button plus the +/- toggle for Pepper's tablet in its top-right corner */
+.gcell{position:relative;min-width:0}
+.gcell>button:first-child{width:100%;height:100%;padding-right:32px}
+.grid-btn .pin{position:absolute;top:4px;right:4px;width:24px;height:24px;padding:0;display:flex;align-items:center;
+  justify-content:center;font-size:16px;line-height:1;font-weight:700;color:var(--muted);background:transparent;
+  border:1px solid transparent;border-radius:6px}
+.grid-btn .pin:hover:not(:disabled){color:var(--accent);border-color:var(--accent)}
+.grid-btn .pin[aria-pressed=true]{color:#06101f;background:var(--accent);border-color:var(--accent)}
+.grid-btn .pin[aria-pressed=true]:hover:not(:disabled){background:var(--bad);border-color:var(--bad);color:#fff}
 
 .pads{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 @media (max-width:480px){.pads{grid-template-columns:1fr}}
@@ -247,7 +256,8 @@ input[type=range]{flex:1;accent-color:var(--accent)}
 
   <div class="col">
     <section>
-      <h2>Gestures <span class="right"><button class="ctl" data-act="stop_animation">Stop</button></span></h2>
+      <h2>Gestures <span class="right meta" id="tablet-count" title="Press + on a gesture to add it to Pepper's tablet, − to remove it"></span>
+        <span class="right" style="margin-left:0"><button class="ctl" data-act="stop_animation">Stop</button></span></h2>
       <div class="grid-btn" id="gestures"></div>
     </section>
 
@@ -467,18 +477,41 @@ function renderGestures(list) {
         h("span", {class: "eq", "aria-hidden": "true"}, h("i"), h("i"), h("i")),
         h("span", {class: "stopico", "aria-hidden": "true"}),
         nice(g.name), h("small", {}, g.description));
-      return b;
+      const pin = h("button", {class: "pin ctl",
+        onclick: () => {
+          const add = pin.getAttribute("aria-pressed") !== "true";
+          setPinned(pin, add, g.name);
+          act("tablet_gesture", {name: g.name, pinned: add}).then(r => {
+            if (r == null) { setPinned(pin, !add, g.name); return; }
+            toast(nice(g.name) + (add ? " added to the tablet" : " removed from the tablet") +
+                  (add && !r.shown ? " (it shows once the tablet is free and reachable)" : ""));
+          });
+        }}, "+");
+      setPinned(pin, false, g.name);
+      return h("div", {class: "gcell", "data-name": g.name}, b, pin);
     }));
   }
   // A group (e.g. "dance") plays under its own name, so the pressed button lights up.
   // A poll that raced the click (gesture thread not started yet) must not switch it off again.
   const playing = new Set(S.playing || []);
-  for (const b of box.children) {
-    const name = b.dataset.name;
+  const pinned = new Set(S.tablet_gestures || []);
+  for (const cell of box.children) {
+    const name = cell.dataset.name;
     if (playing.has(name)) startedAt.delete(name);
     const fresh = Date.now() - (startedAt.get(name) || 0) < START_GRACE_MS;
-    setPlaying(b, playing.has(name) || fresh);
+    setPlaying(cell.firstElementChild, playing.has(name) || fresh);
+    if (!pending) setPinned(cell.lastElementChild, pinned.has(name), name);
   }
+  $("#tablet-count").textContent = pinned.size ? pinned.size + " on tablet" : "+ adds to tablet";
+}
+
+function setPinned(pin, on, name) {
+  if (pin.getAttribute("aria-pressed") === String(on)) return;
+  pin.setAttribute("aria-pressed", String(on));
+  pin.textContent = on ? "−" : "+";
+  const label = (on ? "Remove " : "Add ") + nice(name) + (on ? " from" : " to") + " Pepper's tablet";
+  pin.title = label;
+  pin.setAttribute("aria-label", label);
 }
 
 const START_GRACE_MS = 2000;

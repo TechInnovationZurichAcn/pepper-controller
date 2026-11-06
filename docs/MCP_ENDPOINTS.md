@@ -269,7 +269,7 @@ tablet …" until `tictactoe_stop`.
 | `tictactoe_start` | `human_symbol: X\|O` (default X), `human_first=True`, `difficulty: easy\|medium\|hard` (default medium) | state + `display` (`interactive` with `--preview-port`, `static`, `unavailable`) + `hint` |
 | `tictactoe_move` | `cell: 1-9` (the person's spoken move) | state after Pepper's reply |
 | `tictactoe_state` | – | board rows, turn, result, score |
-| `tictactoe_stop` | `hide_tablet` (default true) | final state; releases the tablet |
+| `tictactoe_stop` | `hide_tablet` (default true) | final state; releases the tablet (and shows the pinned gesture buttons instead of hiding it, when there are any) |
 
 How a game runs: `tictactoe_start` puts the board on the tablet. `display` says how:
 `interactive` = the page `/game/tictactoe` served by the preview server and loaded through the
@@ -278,6 +278,11 @@ and Pepper answers about 0.7 s later on its own (Gemini only comments). The page
 button starts a new game (`game.started`). `static` = no preview server or relay: a numbered board
 is shown and moves come by voice through `tictactoe_move`. `unavailable` = no tablet; the board is
 described in words. Moves and results arrive as `game.*` events.
+
+When gesture buttons are pinned to the tablet (dashboard, see section 5), the tablet goes back to
+them 5 s after a game ends with a win, loss or draw: the game is stopped (no further event, it is
+already over) and the tablet released. *Play again* or a new game within those 5 s keeps the board.
+With nothing pinned the result screen stays, as before.
 
 ### 2.11 Tracking & following
 
@@ -410,16 +415,22 @@ MCP client. External MCP clients (Claude Desktop, Claude Code, …) are not a su
   | `/game/tictactoe` | GET | the tic-tac-toe page shown on the tablet |
   | `/api/game/tictactoe` | GET | game state |
   | `/api/game/tictactoe/move` / `/new` | POST | a tapped cell `{cell}` / *Play again*; open to the LAN because the tablet is another device and a game move cannot move the robot (Host, JSON and Origin checks still apply) |
+  | `/tablet/gestures` | GET | the gesture buttons shown on the tablet (`tablet_gestures.html`) |
+  | `/api/tablet/gestures` | GET | pinned gestures `{name, label, description}`, `playing`, `dancing`, `version` |
+  | `/api/tablet/gestures/play` | POST | a pressed button `{name}`: plays that gesture, or stops it when it is the one playing. Needs the random per-run key from the page URL as `X-Tablet-Key` (only the tablet is given it) and only pinned gestures are accepted; Host, JSON and Origin checks still apply |
 
   The tablet itself reaches these URLs through the TCP relay on Pepper's head
   (`robot/tablet_relay.py`), never directly.
 * Dashboard at `/` on the same port: `GET /api/state` (status, reflexes, perception,
   abilities, cameras, volume, gestures, `playing` (running gestures), `dancing` (the running
-  dance or null), transcript; `control` says whether this client may act)
+  dance or null), `tablet_gestures` (gestures pinned to the tablet), transcript; `control` says whether this client may act)
   and `POST /api/action/<name>` with a JSON body. Actions: `stop`, `wake_up`, `rest`,
   `reflex {name, enabled}`, `perception {name, enabled}`,
   `liveliness {preset}`, `ability {name, enabled}`,
   `tracking {enabled, target, mode}`, `follow {enabled, distance_m?}`, `gesture {name}`,
+  `tablet_gesture {name, pinned}` (the `+`/`−` in a gesture's corner: adds the button to the tablet or
+  removes it; returns `{pinned, shown}`. The page is put on the tablet unless a game holds it, and
+  hidden again when the last button is removed),
   `stop_animation`, `stop_gesture` (stops the running gesture or dance and its music, then
   returns to StandInit if something was running; the dashboard sends it when a playing gesture button is pressed again),
   `move {vx, vy, vtheta, duration_s}`, `turn {degrees}`, `look {direction}`,

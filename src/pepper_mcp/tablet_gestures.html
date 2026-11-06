@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Pepper's moves</title>
+<!-- Runs in Pepper's Android 5 WebView: ES5 only, XHR, no CSS grid/variables. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #0b1020; color: #eaf2ff; font-family: sans-serif;
+               -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: rgba(0,0,0,0); }
+  body { overflow-x: hidden; overflow-y: auto; }
+  h1 { margin: 0; padding: 4vh 4vw 1vh; font-size: 6vh; text-align: center; }
+  h1 b { color: #ffd166; }
+  #list { display: -webkit-box; display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap;
+          -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center;
+          padding: 2vh 2vw 8vh; }
+  button { position: relative; width: 29vw; min-height: 22vh; margin: 1.4vh 1vw; padding: 2vh 2vw;
+           border: 0.5vh solid #26325a; border-radius: 3vh; background: #18213d; color: #eaf2ff;
+           font-size: 5.5vh; font-weight: bold; line-height: 1.15; text-align: center;
+           -webkit-transition: -webkit-transform 0.1s; transition: transform 0.1s; }
+  button:active { -webkit-transform: scale(0.96); transform: scale(0.96); background: #26325a; }
+  button small { display: block; margin-top: 1vh; font-size: 3vh; font-weight: normal; color: #9fb0d8; }
+  button.playing { border-color: #2fbf71; background: #123224; }
+  button.playing small { color: #2fbf71; }
+  button.blocked { opacity: 0.45; }
+  #empty { padding: 20vh 8vw; font-size: 5vh; color: #9fb0d8; text-align: center; }
+  #net { position: fixed; bottom: 1.5vh; left: 0; right: 0; font-size: 3.2vh; color: #ff6b6b; text-align: center; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<h1>Tap a button and <b>Pepper</b> moves!</h1>
+<div id="list"></div>
+<div id="empty" class="hidden">No moves here yet.</div>
+<div id="net"></div>
+<script>
+(function () {
+  var API = "/api/tablet/gestures";
+  var KEY = (/[?&]k=([^&]+)/.exec(location.search) || [])[1] || "";
+  var state = null;
+  var sig = "";
+  var busy = false;
+  var errTimer = null;
+  // A gesture starts on a background thread, so the reply to a press may not list it as playing
+  // yet; show it as playing for a moment so a second tap stops it instead of restarting it.
+  var GRACE_MS = 1500;
+  var pressed = {};
+
+  function $(id) { return document.getElementById(id); }
+
+  function request(method, path, body, done) {
+    var xhr = new XMLHttpRequest();
+    xhr.open(method, path, true);
+    xhr.timeout = 4000;
+    if (body !== null) {
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.setRequestHeader("X-Tablet-Key", decodeURIComponent(KEY));
+    }
+    xhr.onreadystatechange = function () {
+      if (xhr.readyState !== 4) { return; }
+      var data = null;
+      try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+      done(xhr.status, data);
+    };
+    xhr.send(body === null ? null : JSON.stringify(body));
+  }
+
+  function showError(text) {
+    $("net").textContent = text;
+    clearTimeout(errTimer);
+    errTimer = setTimeout(function () { $("net").textContent = ""; }, 4000);
+  }
+
+  function indexOf(list, item) {
+    for (var i = 0; i < list.length; i++) { if (list[i] === item) { return i; } }
+    return -1;
+  }
+
+  // Rebuild the buttons only when the pinned list changes; otherwise just update their state.
+  function render(s) {
+    var i, g, names = [];
+    for (i = 0; i < s.gestures.length; i++) { names.push(s.gestures[i].name); }
+    if (names.join() !== sig) {
+      sig = names.join();
+      var list = $("list");
+      list.innerHTML = "";
+      for (i = 0; i < s.gestures.length; i++) {
+        g = s.gestures[i];
+        var b = document.createElement("button");
+        b.setAttribute("data-name", g.name);
+        b.appendChild(document.createTextNode(g.label));
+        b.appendChild(document.createElement("small"));
+        list.appendChild(b);
+      }
+      $("empty").className = names.length ? "hidden" : "";
+    }
+    var buttons = $("list").getElementsByTagName("button");
+    for (i = 0; i < buttons.length; i++) {
+      var name = buttons[i].getAttribute("data-name");
+      var playing = indexOf(s.playing, name) >= 0;
+      if (playing) { delete pressed[name]; }
+      playing = playing || (new Date().getTime() - (pressed[name] || 0) < GRACE_MS);
+      var blocked = !playing && s.dancing !== null;
+      buttons[i].className = playing ? "playing" : (blocked ? "blocked" : "");
+      buttons[i].lastChild.textContent = playing ? "playing · tap to stop" : "";
+    }
+  }
+
+  function accept(status, data) {
+    if (status === 200 && data && data.gestures) {
+      state = data;
+      render(state);
+    } else if (status === 0) {
+      showError("Connection to the server lost…");
+    }
+  }
+
+  function poll() {
+    request("GET", API, null, function (status, data) {
+      if (!busy) { accept(status, data); }
+      setTimeout(poll, 700);
+    });
+  }
+
+  $("list").onclick = function (ev) {
+    var el = ev.target || ev.srcElement;
+    if (el && el.tagName === "SMALL") { el = el.parentNode; }
+    if (!el || !el.getAttribute || busy) { return; }
+    var name = el.getAttribute("data-name");
+    if (!name) { return; }
+    var stopping = el.className === "playing";
+    delete pressed[name];
+    if (!stopping) { pressed[name] = new Date().getTime(); }
+    busy = true;
+    request("POST", API + "/play", {name: name}, function (status, data) {
+      busy = false;
+      if (status === 200) {
+        accept(status, data);
+      } else {
+        delete pressed[name];
+        if (state) { render(state); }
+        showError((data && data.error) ? data.error : "That did not work");
+      }
+    });
+  };
+
+  poll();
+})();
+</script>
+</body>
+</html>

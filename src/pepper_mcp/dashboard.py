@@ -1,10 +1,10 @@
 """Control dashboard served by the preview side channel (``/``, ``/api/state``, ``/api/action/<name>``).
 
 The actions mirror the MCP tools a human most often wants at hand (stop, reflexes, hearing,
-perception, liveliness, gestures, head/base nudges, speech, volume, mood lights) and keep the
-same safety limits: base moves are clamped to the 5 s watchdog and refused while follow/navigation
-own the base. Every action is a whitelisted function, so the HTTP layer never reaches arbitrary
-runtime attributes.
+perception, liveliness, gestures and the tablet's gesture buttons, head/base nudges, speech,
+volume, mood lights) and keep the same safety limits: base moves are clamped to the 5 s watchdog
+and refused while follow/navigation own the base. Every action is a whitelisted function, so the
+HTTP layer never reaches arbitrary runtime attributes.
 """
 
 from __future__ import annotations
@@ -78,6 +78,7 @@ def state(rt: Any) -> dict[str, Any]:
     out["gestures"] = [{"name": g["name"], "description": g.get("description", "")}
                        for g in (_safe("gestures", rt.gestures.list) or []) if "library" not in g.get("tags", [])]
     out["playing"] = _safe("playing", rt.gestures.active) or []
+    out["tablet_gestures"] = _safe("tablet gestures", rt.tablet_home.pinned) or []
     out["dancing"] = _safe("dancing", rt.gestures.dancing)
     out["transcript"] = list(rt.transcript)[-8:]
     out["options"] = {"liveliness": sorted(PRESETS),
@@ -167,6 +168,14 @@ def _gesture(rt: Any, a: dict[str, Any]) -> Any:
     return task.to_dict()
 
 
+def _tablet_gesture(rt: Any, a: dict[str, Any]) -> Any:
+    """Add a gesture button to the tablet's home screen, or remove it."""
+    name = a.get("name")
+    if not isinstance(name, str):
+        raise ActionError("'name' must be a gesture name")
+    return rt.tablet_home.pin(name, _bool(a, "pinned"))
+
+
 def _not_dancing(rt: Any) -> None:
     dance = rt.gestures.dancing()
     if dance is not None:
@@ -246,6 +255,7 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], Any]] = {
     "follow": _follow,
     "gesture": _gesture,
     "stop_gesture": _stop_gesture,
+    "tablet_gesture": _tablet_gesture,
     "stop_animation": lambda rt, a: (rt.animations.stop(), {"gestures_stopped": rt.gestures.stop_all()})[1],
     "move": _move,
     "turn": _turn,

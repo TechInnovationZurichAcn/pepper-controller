@@ -36,6 +36,7 @@ from pepper_mcp.robot.tablet import Tablet
 from pepper_mcp.robot.tablet_relay import TabletRelay
 from pepper_mcp.robot.tasks import TaskRegistry
 from pepper_mcp.robot.tracker import Tracker
+from pepper_mcp.tablet_home import TabletHome
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +83,9 @@ class Runtime:
         self.tablet_relay: TabletRelay | None = None
         self.gestures = GestureRegistry(self._gesture_context)
         self.tictactoe = TicTacToe(self.bus)
+        #: gesture buttons pinned to the tablet from the dashboard (its home screen)
+        self.tablet_home = TabletHome(self)
+        self.bus.add_sync_hook(self.tablet_home.on_event)
         self._asset_urls: dict[str, str | None] = {}
         self._lock = threading.Lock()
         self.warnings: list[str] = []
@@ -230,6 +234,7 @@ class Runtime:
             ("navigator", lambda: self.navigator and self.navigator.stop()),
             ("gestures", self.gestures.stop_all),
             ("games", self.tictactoe.shutdown),
+            ("tablet home", self.tablet_home.shutdown),
             ("tasks", self.tasks.cancel_all),
             ("speech", lambda: (self.speech.stop_speaking(), self.speech.stop())),
             ("motion", lambda: (self.motion.restore_defaults(), self.motion.stop())),

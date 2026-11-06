@@ -66,6 +66,7 @@ src/pepper_mcp/
   assets/           files for the tablet and speakers (67 GIF + page, circus music)
   preview.py        optional HTTP side channel: MJPEG, live WAV, SSE events, dashboard API
   dashboard.py      dashboard state snapshot + whitelisted actions (dashboard.html = page)
+  tablet_home.py    gesture buttons pinned to the tablet (tablet_gestures.html), shown again after a game
   verify.py         `pepper-mcp-verify`: checklist run against the real robot
   robot/asr.py      on-robot keyword recognition (ALSpeechRecognition) + QiChat dialogs
   gemini_live.py    `pepper-mcp-gemini`: Gemini Live speech-to-speech agent (see 2.2)
